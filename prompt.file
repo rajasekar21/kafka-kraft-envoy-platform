@@ -1,0 +1,228 @@
+You are a senior distributed systems architect and DevOps engineer.
+
+Design and implement a **bank-grade Kafka platform** with the following **strict requirements and deliverables**. Provide **production-ready, copy-pasteable artifacts**, not just explanations.
+
+---
+
+# 🎯 OBJECTIVE
+
+Build a **secure, scalable, highly available Kafka platform** exposed to external banking clients via:
+
+* **Single public endpoint (DNS + port 443)**
+* **mTLS authentication**
+* **Kafka-aware proxy layer**
+* **On-prem deployment model**
+* **Full automation (Infra as Code + CI/CD)**
+
+---
+
+# 🧱 CORE ARCHITECTURE
+
+Design a system with:
+
+### Kafka Layer
+
+* Apache Kafka in **KRaft mode (no Zookeeper)**
+* Minimum **3 brokers (broker + controller roles)**
+* Proper replication (RF=3, ISR ≥ 2)
+
+### Ingress Layer
+
+* Use **Envoy proxy with Kafka filter**
+* TLS termination + **mTLS enforcement**
+* Metadata rewriting (clients only see proxy endpoint)
+
+### High Availability
+
+* **2 Envoy nodes**
+* **Keepalived VIP (single IP failover)**
+* Active-passive failover
+
+### Networking
+
+* Single endpoint:
+
+```text
+kafka.bank.example.com:443
+```
+
+---
+
+# 🔐 SECURITY REQUIREMENTS
+
+* Full **mTLS (client + server cert validation)**
+* Internal **Certificate Authority (CA)** setup
+* Support:
+
+  * Cert rotation
+  * Client identity mapping (per bank)
+* No direct Kafka broker exposure
+
+---
+
+# ⚙️ AUTOMATION (MANDATORY)
+
+Provide complete **Ansible-based deployment**:
+
+### Must include:
+
+* Inventory (prod + staging + lab)
+* Roles:
+
+  * kafka_kraft
+  * envoy
+  * keepalived
+  * pki
+  * observability
+* systemd services
+* Config templates
+
+---
+
+# 🚀 CI/CD PIPELINE
+
+Provide **GitHub Actions pipeline** that:
+
+1. Validates playbooks
+2. Performs dry-run
+3. Deploys to staging VMs
+4. Runs **Kafka smoke tests**
+5. Uploads test reports
+6. Fails on errors
+
+Include:
+
+* Secrets handling (SSH keys)
+* Environment gating
+
+---
+
+# 🧪 TESTING (CRITICAL)
+
+Provide **automated validation suite**:
+
+### Smoke Tests
+
+* Topic creation
+* Produce/consume
+* TLS handshake validation
+* Envoy routing validation
+
+### Load Testing
+
+* kafka-producer-perf-test
+* Continuous load script
+
+### Chaos Testing
+
+* Latency injection (tc)
+* Packet loss
+* Network partition
+* Recovery scripts
+
+---
+
+# 🧪 VM LAB (ON-PREM SIMULATION)
+
+Provide full setup using:
+
+* Multipass (Ubuntu VMs)
+
+Include:
+
+* 5-node topology (3 Kafka + 2 Envoy)
+* Inventory config
+* DNS mapping
+* Failover testing steps
+
+---
+
+# 📊 OBSERVABILITY
+
+Design monitoring stack:
+
+* Prometheus
+* Grafana
+* Kafka JMX exporter
+* Envoy metrics
+
+Include:
+
+* Key dashboards
+* Metrics list
+* Alert examples
+
+---
+
+# 📘 DOCUMENTATION
+
+Provide a **GitHub-ready README.md** with:
+
+* Badges
+* Table of contents
+* Architecture diagrams (Mermaid)
+* Deployment steps
+* Runbooks
+* Troubleshooting
+
+---
+
+# 🎨 DIAGRAMS
+
+Include:
+
+### Mermaid diagrams:
+
+* Architecture
+* mTLS flow
+* Failover flow
+* Data flow
+
+### Draw.io exportable diagrams
+
+---
+
+# 📦 DELIVERABLES FORMAT
+
+Provide:
+
+1. Full folder structure
+2. All files (ready to commit)
+3. Scripts (bash)
+4. Ansible playbooks
+5. CI/CD YAML
+6. README.md
+7. Runbook content
+
+---
+
+# ⚠️ CONSTRAINTS
+
+* Must work on **Ubuntu 22/24**
+* Must be **on-prem compatible**
+* Avoid Docker-only assumptions for production
+* Ensure **idempotency**
+* Ensure **zero-downtime design principles**
+
+---
+
+# 🧭 EXPECTED OUTPUT STYLE
+
+* No high-level fluff
+* Provide **real configs, scripts, commands**
+* Clearly separated sections
+* Production-ready quality
+* Include best practices and pitfalls
+
+---
+
+# 🚀 BONUS (IF POSSIBLE)
+
+* Rolling upgrade strategy
+* Blue/green deployment
+* Multi-tenant Kafka design
+* Future Kubernetes migration path
+
+---
+
+Generate the complete solution end-to-end.
