@@ -60,7 +60,7 @@ flowchart LR
     E2 --> K2
     E2 --> K3
 
-    subgraph Kafka Cluster (KRaft)
+    subgraph Kafka Cluster - KRaft
         K1
         K2
         K3
