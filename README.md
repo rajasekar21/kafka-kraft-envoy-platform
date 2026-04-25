@@ -48,7 +48,7 @@ This platform enables **secure Kafka exposure to external banks** via:
 
 ```mermaid
 flowchart LR
-    Bank[Bank Client] -->|mTLS 443| VIP[kafka.bank.example.com (VIP)]
+    Bank[Bank Client] -->|mTLS 443| VIP["kafka.bank.example.com - VIP"]
     VIP --> E1[Envoy Node 1]
     VIP --> E2[Envoy Node 2]
 
