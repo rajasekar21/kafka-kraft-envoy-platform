@@ -1,155 +1,179 @@
 You are a senior distributed systems architect and DevOps engineer.
 
-Design and implement a **bank-grade Kafka platform** with the following **strict requirements and deliverables**. Provide **production-ready, copy-pasteable artifacts**, not just explanations.
+Design and implement a **bank-grade Kafka platform deployed on bare-metal, on-premises infrastructure** with strict requirements for **security, high availability, and operational reliability**.
+
+Provide **production-ready, copy-pasteable artifacts** (configs, scripts, playbooks, CI/CD, runbooks). Avoid theoretical explanations.
 
 ---
 
 # 🎯 OBJECTIVE
 
-Build a **secure, scalable, highly available Kafka platform** exposed to external banking clients via:
+Build a **secure Kafka ingestion platform** exposed to external banking clients via:
 
 * **Single public endpoint (DNS + port 443)**
-* **mTLS authentication**
-* **Kafka-aware proxy layer**
-* **On-prem deployment model**
-* **Full automation (Infra as Code + CI/CD)**
+* **Standalone Envoy-based load balancing**
+* **Keepalived VIP for high availability (Option A)**
+* **mTLS authentication (mandatory)**
+* **Bare-metal deployment (no Docker in production)**
 
 ---
 
-# 🧱 CORE ARCHITECTURE
+# 🧱 CORE ARCHITECTURE (MANDATORY)
 
-Design a system with:
-
-### Kafka Layer
+## Kafka Layer
 
 * Apache Kafka in **KRaft mode (no Zookeeper)**
 * Minimum **3 brokers (broker + controller roles)**
-* Proper replication (RF=3, ISR ≥ 2)
+* Replication factor ≥ 3
+* ISR ≥ 2
+* Dedicated physical servers (no co-located workloads)
 
-### Ingress Layer
+## Ingress Layer (CRITICAL)
 
-* Use **Envoy proxy with Kafka filter**
-* TLS termination + **mTLS enforcement**
-* Metadata rewriting (clients only see proxy endpoint)
+* **Envoy proxy (standalone, no cloud LB, no Kubernetes)**
+* Use **Kafka network filter**
+* TLS termination with **mTLS enforcement**
+* Metadata rewriting so clients only see Envoy endpoint
 
-### High Availability
+## High Availability (Option A — REQUIRED)
 
-* **2 Envoy nodes**
-* **Keepalived VIP (single IP failover)**
+* Minimum **2 Envoy nodes**
+* **Keepalived for Virtual IP (VIP)**
 * Active-passive failover
+* VIP is the **single client endpoint**
 
-### Networking
+## Networking
 
-* Single endpoint:
+* Internal Kafka network (private subnet)
+* External VIP exposed on:
 
-```text
+```text id="n9i8m0"
 kafka.bank.example.com:443
 ```
 
 ---
 
-# 🔐 SECURITY REQUIREMENTS
+# 🔐 SECURITY REQUIREMENTS (NON-NEGOTIABLE)
 
-* Full **mTLS (client + server cert validation)**
+* Full **mTLS (client + server certificate validation)**
 * Internal **Certificate Authority (CA)** setup
 * Support:
 
-  * Cert rotation
+  * Certificate rotation
   * Client identity mapping (per bank)
-* No direct Kafka broker exposure
+* Kafka brokers must NOT be externally reachable
+* Harden SSH and firewall rules
+
+---
+
+# ⚙️ BARE-METAL REQUIREMENTS
+
+* Ubuntu **22.04 / 24.04 LTS**
+* systemd-based services
+* No container runtime in production
+* OS tuning required:
+
+  * ulimit
+  * sysctl networking
+  * swap disabled
+  * disk optimization (XFS/EXT4, noatime)
+* Kafka uses dedicated disks (NVMe preferred)
 
 ---
 
 # ⚙️ AUTOMATION (MANDATORY)
 
-Provide complete **Ansible-based deployment**:
+Provide full **Ansible-based deployment**:
 
-### Must include:
+## Structure
 
-* Inventory (prod + staging + lab)
-* Roles:
+* inventories: prod, staging, lab
+* roles:
 
   * kafka_kraft
   * envoy
   * keepalived
   * pki
   * observability
-* systemd services
-* Config templates
+
+## Must include
+
+* systemd service definitions
+* Config templates (Kafka, Envoy, Keepalived)
+* Idempotent playbooks
+* Rolling restart capability
 
 ---
 
-# 🚀 CI/CD PIPELINE
+# 🚀 CI/CD PIPELINE (GITHUB ACTIONS)
 
-Provide **GitHub Actions pipeline** that:
+Provide pipeline that:
 
-1. Validates playbooks
+1. Validates Ansible syntax
 2. Performs dry-run
-3. Deploys to staging VMs
-4. Runs **Kafka smoke tests**
-5. Uploads test reports
+3. Deploys to staging VMs (bare-metal-like)
+4. Executes **Kafka smoke tests**
+5. Uploads test reports (JUnit)
 6. Fails on errors
+7. Supports manual approval for production
 
 Include:
 
-* Secrets handling (SSH keys)
+* SSH key handling via secrets
 * Environment gating
 
 ---
 
 # 🧪 TESTING (CRITICAL)
 
-Provide **automated validation suite**:
-
-### Smoke Tests
+## Smoke Tests
 
 * Topic creation
-* Produce/consume
+* Produce/consume validation
 * TLS handshake validation
 * Envoy routing validation
 
-### Load Testing
+## Load Testing
 
 * kafka-producer-perf-test
 * Continuous load script
 
-### Chaos Testing
+## Chaos Testing
 
 * Latency injection (tc)
 * Packet loss
 * Network partition
-* Recovery scripts
+* Recovery/reset scripts
 
 ---
 
 # 🧪 VM LAB (ON-PREM SIMULATION)
 
-Provide full setup using:
+Provide a **Multipass-based VM lab**:
 
-* Multipass (Ubuntu VMs)
+* 5-node topology:
 
-Include:
-
-* 5-node topology (3 Kafka + 2 Envoy)
-* Inventory config
-* DNS mapping
-* Failover testing steps
+  * 3 Kafka
+  * 2 Envoy
+* Inventory configuration
+* DNS mapping (hosts file)
+* VIP failover testing steps
 
 ---
 
 # 📊 OBSERVABILITY
 
-Design monitoring stack:
+Include:
 
 * Prometheus
 * Grafana
 * Kafka JMX exporter
-* Envoy metrics
+* Envoy stats
 
-Include:
+Provide:
 
-* Key dashboards
-* Metrics list
+* Dashboard definitions
+* Key metrics (throughput, latency, lag)
 * Alert examples
 
 ---
@@ -160,10 +184,11 @@ Provide a **GitHub-ready README.md** with:
 
 * Badges
 * Table of contents
-* Architecture diagrams (Mermaid)
+* Mermaid diagrams (GitHub-compatible)
 * Deployment steps
-* Runbooks
-* Troubleshooting
+* Validation steps
+* Runbooks (incident + failover)
+* Troubleshooting guide
 
 ---
 
@@ -171,14 +196,16 @@ Provide a **GitHub-ready README.md** with:
 
 Include:
 
-### Mermaid diagrams:
+## Mermaid diagrams
 
 * Architecture
 * mTLS flow
-* Failover flow
+* Failover (VIP movement)
 * Data flow
 
-### Draw.io exportable diagrams
+## Editable diagrams
+
+* draw.io format
 
 ---
 
@@ -187,9 +214,9 @@ Include:
 Provide:
 
 1. Full folder structure
-2. All files (ready to commit)
-3. Scripts (bash)
-4. Ansible playbooks
+2. All files ready to commit
+3. Bash scripts (load, chaos, smoke)
+4. Ansible playbooks and roles
 5. CI/CD YAML
 6. README.md
 7. Runbook content
@@ -198,9 +225,10 @@ Provide:
 
 # ⚠️ CONSTRAINTS
 
-* Must work on **Ubuntu 22/24**
-* Must be **on-prem compatible**
-* Avoid Docker-only assumptions for production
+* Must run on **bare-metal on-prem servers**
+* No reliance on cloud load balancers
+* No Kubernetes requirement
+* No Docker in production path
 * Ensure **idempotency**
 * Ensure **zero-downtime design principles**
 
@@ -208,20 +236,20 @@ Provide:
 
 # 🧭 EXPECTED OUTPUT STYLE
 
-* No high-level fluff
-* Provide **real configs, scripts, commands**
-* Clearly separated sections
+* No fluff
+* Real configs and commands
+* Clear sectioning
 * Production-ready quality
-* Include best practices and pitfalls
+* Include pitfalls and best practices
 
 ---
 
-# 🚀 BONUS (IF POSSIBLE)
+# 🚀 BONUS (OPTIONAL)
 
-* Rolling upgrade strategy
-* Blue/green deployment
-* Multi-tenant Kafka design
-* Future Kubernetes migration path
+* Rolling upgrade strategy (zero downtime)
+* Blue/green deployment approach
+* Multi-datacenter DR strategy
+* Capacity planning guidelines
 
 ---
 
