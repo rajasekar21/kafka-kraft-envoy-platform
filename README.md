@@ -1,12 +1,12 @@
 # 🚀 Kafka KRaft + Envoy Platform
 
-### Secure Single-Endpoint Kafka (mTLS + HA) — Ubuntu 22/24
+### Secure Single-Endpoint Kafka (mTLS + HA) — Bare Metal (Ubuntu 22/24)
 
 ![Platform](https://img.shields.io/badge/Platform-Kafka%20KRaft-blue)
 ![Ingress](https://img.shields.io/badge/Ingress-Envoy-green)
 ![Security](https://img.shields.io/badge/Security-mTLS-critical)
 ![HA](https://img.shields.io/badge/HA-Keepalived-orange)
-![OS](https://img.shields.io/badge/OS-Ubuntu%2022%2F24-purple)
+![Deployment](https://img.shields.io/badge/Deployment-BareMetal-important)
 ![CI](https://img.shields.io/badge/CI-GitHub%20Actions-lightgrey)
 
 ---
@@ -15,295 +15,222 @@
 
 * [Overview](#-overview)
 * [Architecture](#-architecture)
-* [Security (mTLS Flow)](#-security-mtls-flow)
+* [Security](#-security-mtls-flow)
 * [High Availability](#-high-availability)
-* [Repository Structure](#-repository-structure)
-* [Prerequisites](#-prerequisites)
-* [Configuration](#-configuration)
+* [Bare-Metal Deployment](#-bare-metal-deployment)
+* [Installation Guides](#-installation-guides)
+* [Operations Runbook](#-operations-runbook)
 * [Deployment](#-deployment)
-* [Access](#-access)
-* [Observability](#-observability)
-* [Runbooks](#-runbooks)
+* [Validation](#-validation)
 * [CI/CD](#-cicd)
+* [Testing](#-testing)
 * [Scaling](#-scaling)
-* [Design Summary](#-design-summary)
-* [Roadmap](#-roadmap)
 
 ---
 
 ## 🚀 Overview
 
-This platform enables **secure Kafka exposure to external banks** via:
+This platform provides a **bank-grade Kafka ingestion layer**:
 
-* 🔐 **Single endpoint (`:443`)**
-* 🔑 **Mutual TLS authentication**
-* 🧠 **Kafka-aware proxy (Envoy)**
-* ⚡ **KRaft mode (no Zookeeper)**
-* 🔁 **High availability (VIP failover)**
-* ⚙️ **One-command deployment (Ansible)**
+* Single endpoint (`:443`)
+* mTLS authentication
+* Envoy Kafka proxy
+* Keepalived VIP failover
+* Fully on-prem, bare-metal deployment
 
 ---
 
 ## 🧱 Architecture
 
-```mermaid
+```mermaid id="arch01"
 flowchart LR
-    Bank[Bank Client] -->|mTLS 443| VIP["kafka.bank.example.com - VIP"]
-    VIP --> E1[Envoy Node 1]
-    VIP --> E2[Envoy Node 2]
+    Client --> VIP["kafka.bank.local - VIP"]
+    VIP --> Envoy1
+    VIP --> Envoy2
 
-    E1 --> K1[Kafka Broker 1]
-    E1 --> K2[Kafka Broker 2]
-    E1 --> K3[Kafka Broker 3]
+    Envoy1 --> K1
+    Envoy1 --> K2
+    Envoy1 --> K3
 
-    E2 --> K1
-    E2 --> K2
-    E2 --> K3
-
-    subgraph Kafka Cluster - KRaft
-        K1
-        K2
-        K3
-    end
+    Envoy2 --> K1
+    Envoy2 --> K2
+    Envoy2 --> K3
 ```
-
-### 💡 Key Principles
-
-* Single public endpoint
-* Brokers remain private
-* Envoy handles Kafka protocol routing + metadata rewriting
-* Clients are decoupled from broker topology
 
 ---
 
 ## 🔐 Security (mTLS Flow)
 
-```mermaid
+```mermaid id="arch02"
 sequenceDiagram
-    autonumber
-    participant Client as Bank Client
-    participant Envoy
-    participant Kafka
-
-    Note over Client,Envoy: TLS Handshake
-
-    Client->>Envoy: ClientHello + Certificate
-    Envoy->>Envoy: Validate Certificate (CA)
-    Envoy-->>Client: ServerHello
-
-    Note over Client,Envoy: Secure Channel Established
-
-    Client->>Envoy: Kafka Request
-    Envoy->>Kafka: Forward Request
+    Client->>Envoy: TLS + Cert
+    Envoy->>Envoy: Validate CA
+    Envoy->>Kafka: Forward
     Kafka-->>Envoy: Response
     Envoy-->>Client: Response
 ```
-
-### 🔒 Security Controls
-
-* mTLS enforced (client cert mandatory)
-* No direct broker exposure
-* CA-based trust model
-* Optional: IP allowlisting, rate limiting
 
 ---
 
 ## 🔁 High Availability
 
-```mermaid
+```mermaid id="arch03"
 sequenceDiagram
-    participant Client
-    participant VIP
-    participant Envoy1 as Envoy (Active)
-    participant Envoy2 as Envoy (Standby)
-
-    Client->>VIP: Request (443)
-    VIP->>Envoy1: Forward
+    Client->>VIP: Request
+    VIP->>Envoy1: Active
 
     Note over Envoy1: Failure
 
-    Envoy1--x VIP: Down
     VIP->>Envoy2: Failover
-
-    Client->>VIP: Retry
-    VIP->>Envoy2: Serve Request
-```
-
-### ⚙️ Behavior
-
-* Keepalived manages VIP
-* Automatic failover
-* Zero client disruption
-
----
-
-## 📁 Repository Structure
-
-```text
-kafka-kraft-envoy-platform/
-├── inventories/
-├── playbooks/
-├── roles/
-├── templates/
-├── scripts/
-├── .github/workflows/
-├── ansible.cfg
-└── README.md
 ```
 
 ---
 
-## ⚙️ Prerequisites
+# 🖥️ Bare-Metal Deployment
 
-### Control Node
-
-```bash
-sudo apt update
-sudo apt install -y ansible git python3-pip openssl
-```
-
-### Target Nodes
+This platform is designed for:
 
 * Ubuntu 22.04 / 24.04
-* SSH access configured
-* Open ports:
-
-  * 9092 (Kafka internal)
-  * 9093 (Controller)
-  * 443 (Envoy)
-* NTP enabled
+* Physical servers (no containers in production)
+* Dedicated Kafka nodes
+* Envoy + Keepalived ingress
 
 ---
 
-## 🔧 Configuration
+# 📦 Installation Guides
 
-### 1. Update Inventory
+## 🔹 Envoy (Bare Metal)
 
-```bash
-nano inventories/prod/hosts.ini
-```
+👉 [Envoy Installation Guide](docs/envoy-baremetal-install.md)
 
----
+Covers:
 
-### 2. Generate Cluster ID
-
-```bash
-/opt/kafka/bin/kafka-storage.sh random-uuid
-```
-
-Update:
-
-```yaml
-cluster_id: "<UUID>"
-```
+* Envoy installation (APT)
+* TLS setup (mTLS)
+* systemd service
+* Validation & troubleshooting
 
 ---
 
-### 3. TLS Setup
+## 🔹 Kafka (KRaft Bare Metal)
 
-* Internal CA generated automatically
-* Replace with enterprise CA if required
+👉 [Kafka Installation Guide](docs/kafka-baremetal-install.md)
+
+Covers:
+
+* Kafka setup (KRaft mode)
+* Storage initialization
+* systemd service
+* Performance best practices
 
 ---
 
-## 🚀 Deployment
+# 🛠️ Operations Runbook
 
-```bash
+👉 [Operations Runbook](docs/operations-runbook.md)
+
+Includes:
+
+* Incident handling
+* Failover procedures
+* TLS debugging
+* Health checks
+* Smoke testing
+
+---
+
+# 🚀 Deployment
+
+```bash id="deploy01"
 ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml
 ```
 
 ---
 
-## 🌐 Access
+# 🧪 Validation
 
-```text
-kafka.bank.example.com:443
+### TLS
+
+```bash id="val01"
+openssl s_client -connect kafka.bank.local:443
 ```
 
-Client config:
+### Kafka
 
-```properties
-bootstrap.servers=kafka.bank.example.com:443
-security.protocol=SSL
-```
-
----
-
-## 📊 Observability
-
-* Kafka → JMX exporter
-* Envoy → `:9901/stats`
-* Integrates with:
-
-  * Prometheus
-  * Grafana
-
----
-
-## 🚨 Runbooks
-
-### Kafka Down
-
-```bash
-systemctl restart kafka
-```
-
-### Envoy Down
-
-```bash
-systemctl restart envoy
-```
-
-### TLS Issue
-
-```bash
-openssl s_client -connect kafka.bank.example.com:443
+```bash id="val02"
+kafka-topics.sh --list
 ```
 
 ---
 
-## 🔁 CI/CD
+# 🔁 CI/CD
 
-```text
-.github/workflows/deploy.yml
+```text id="ci01"
+.github/workflows/deploy-staging.yml
 ```
 
-* Automated deployment
-* Extendable to multi-env pipelines
+* Deploy to staging
+* Run smoke tests
+* Upload reports
 
 ---
 
-## 📈 Scaling
+# 🧪 Testing
 
-* Add broker → update inventory → re-run playbook
-* No client changes required
+## Smoke Test
+
+```bash id="test01"
+./scripts/kafka-smoke-test.sh kafka.bank.local:443
+```
+
+## Load Test
+
+```bash id="test02"
+kafka-producer-perf-test.sh ...
+```
+
+## Chaos Test
+
+```bash id="test03"
+./scripts/chaos.sh latency
+```
 
 ---
 
-## 🧭 Design Summary
+# 📈 Scaling
+
+* Add brokers → update Envoy → reload
+* Add Envoy → update Keepalived
+
+---
+
+# 🧭 Design Summary
 
 | Capability      | Implementation |
 | --------------- | -------------- |
-| Single Endpoint | Envoy          |
+| Single Endpoint | Envoy + VIP    |
 | Security        | mTLS           |
 | HA              | Keepalived     |
-| Kafka Mode      | KRaft          |
+| Deployment      | Bare Metal     |
 | Automation      | Ansible        |
 
 ---
 
-## 🚀 Roadmap
+# 📄 Documentation Structure
 
-* Vault-based certificates
-* Terraform provisioning
-* Multi-region Kafka
-* Blue/green upgrades
-
----
-
-## 📄 License
-
-Internal / Enterprise Use
+```text id="doc01"
+docs/
+  envoy-baremetal-install.md
+  kafka-baremetal-install.md
+  operations-runbook.md
+```
 
 ---
 
+# 🚀 Next Steps
+
+* Add monitoring dashboards
+* Implement DR (multi-DC Kafka)
+* Add rate limiting per bank
+
+---
