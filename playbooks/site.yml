@@ -1,0 +1,13 @@
+- hosts: all
+  roles:
+    - common
+
+- hosts: kafka
+  roles:
+    - kafka_kraft
+
+- hosts: envoy
+  roles:
+    - pki
+    - envoy
+    - keepalived

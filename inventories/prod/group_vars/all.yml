@@ -1,0 +1,4 @@
+kafka_version: 3.7.0
+kafka_user: kafka
+tls_dir: /etc/envoy/tls
+cluster_id: REPLACE_ME
