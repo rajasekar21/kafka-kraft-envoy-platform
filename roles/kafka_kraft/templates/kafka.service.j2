@@ -1,0 +1,21 @@
+[Unit]
+Description=Apache Kafka KRaft Broker
+Documentation=https://kafka.apache.org/documentation/
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User={{ kafka_user }}
+Group={{ kafka_group }}
+Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+Environment=KAFKA_HEAP_OPTS={{ kafka_heap_opts }}
+Environment=KAFKA_JVM_PERFORMANCE_OPTS="-server -XX:+UseG1GC -XX:MaxGCPauseMillis=20 -XX:+ExplicitGCInvokesConcurrent -Djava.awt.headless=true"
+ExecStart={{ kafka_home }}/bin/kafka-server-start.sh {{ kafka_home }}/config/kraft/server.properties
+ExecStop={{ kafka_home }}/bin/kafka-server-stop.sh
+Restart=on-failure
+RestartSec=10
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,97 @@
+---
+# Runs on the FIRST envoy node only; distributes certs to all envoy nodes.
+
+- name: Install openssl
+  apt:
+    name: openssl
+    state: present
+
+- name: Create PKI directory
+  file:
+    path: /etc/kafka-pki
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+# ── Generate CA (once, on primary envoy node) ─────────────────────────────────
+- name: Generate CA private key
+  community.crypto.openssl_privatekey:
+    path: /etc/kafka-pki/ca.key
+    size: 4096
+    mode: "0600"
+  when: inventory_hostname == groups['envoy'][0]
+
+- name: Generate CA certificate
+  community.crypto.x509_certificate:
+    path: /etc/kafka-pki/ca.crt
+    privatekey_path: /etc/kafka-pki/ca.key
+    provider: selfsigned
+    selfsigned_not_after: "+3650d"
+    subject:
+      CN: kafka-bank-root-ca
+      O: KafkaBank CA
+      C: US
+  when: inventory_hostname == groups['envoy'][0]
+
+# ── Generate Envoy Server Cert ────────────────────────────────────────────────
+- name: Generate Envoy server private key
+  community.crypto.openssl_privatekey:
+    path: /etc/kafka-pki/server.key
+    size: 2048
+    mode: "0600"
+  when: inventory_hostname == groups['envoy'][0]
+
+- name: Generate Envoy server CSR
+  community.crypto.openssl_csr:
+    path: /etc/kafka-pki/server.csr
+    privatekey_path: /etc/kafka-pki/server.key
+    common_name: "{{ domain }}"
+    subject_alt_name:
+      - "DNS:{{ domain }}"
+      - "DNS:{{ inventory_hostname }}"
+      - "IP:{{ vip }}"
+  when: inventory_hostname == groups['envoy'][0]
+
+- name: Sign Envoy server certificate
+  community.crypto.x509_certificate:
+    path: /etc/kafka-pki/server.crt
+    csr_path: /etc/kafka-pki/server.csr
+    ownca_path: /etc/kafka-pki/ca.crt
+    ownca_privatekey_path: /etc/kafka-pki/ca.key
+    provider: ownca
+    ownca_not_after: "+365d"
+  when: inventory_hostname == groups['envoy'][0]
+
+# ── Distribute certs to all envoy nodes ───────────────────────────────────────
+- name: Fetch CA cert from primary
+  fetch:
+    src: /etc/kafka-pki/ca.crt
+    dest: /tmp/kafka-pki/ca.crt
+    flat: yes
+  when: inventory_hostname == groups['envoy'][0]
+
+- name: Fetch server cert from primary
+  fetch:
+    src: /etc/kafka-pki/server.crt
+    dest: /tmp/kafka-pki/server.crt
+    flat: yes
+  when: inventory_hostname == groups['envoy'][0]
+
+- name: Fetch server key from primary
+  fetch:
+    src: /etc/kafka-pki/server.key
+    dest: /tmp/kafka-pki/server.key
+    flat: yes
+  when: inventory_hostname == groups['envoy'][0]
+
+- name: Push certs to secondary envoy nodes
+  copy:
+    src: "/tmp/kafka-pki/{{ item }}"
+    dest: "/etc/kafka-pki/{{ item }}"
+    mode: "0640"
+  loop:
+    - ca.crt
+    - server.crt
+    - server.key
+  when: inventory_hostname != groups['envoy'][0]

@@ -1,0 +1,83 @@
+---
+- name: Install OpenJDK 17
+  apt:
+    name: openjdk-17-jdk-headless
+    state: present
+
+- name: Create kafka group
+  group:
+    name: "{{ kafka_group }}"
+    state: present
+
+- name: Create kafka user
+  user:
+    name: "{{ kafka_user }}"
+    group: "{{ kafka_group }}"
+    home: "{{ kafka_home }}"
+    shell: /usr/sbin/nologin
+    system: yes
+    create_home: no
+
+- name: Create Kafka directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ kafka_user }}"
+    group: "{{ kafka_group }}"
+    mode: "0750"
+  loop:
+    - "{{ kafka_home }}"
+    - "{{ kafka_data_dir }}"
+    - "{{ kafka_log_dir }}"
+
+- name: Download Kafka tarball
+  get_url:
+    url: "https://downloads.apache.org/kafka/{{ kafka_version }}/kafka_{{ kafka_scala_version }}-{{ kafka_version }}.tgz"
+    dest: "/tmp/kafka_{{ kafka_scala_version }}-{{ kafka_version }}.tgz"
+    mode: "0644"
+  register: kafka_tarball
+
+- name: Extract Kafka
+  unarchive:
+    src: "/tmp/kafka_{{ kafka_scala_version }}-{{ kafka_version }}.tgz"
+    dest: "{{ kafka_home }}"
+    remote_src: yes
+    extra_opts: [--strip-components=1]
+    owner: "{{ kafka_user }}"
+    group: "{{ kafka_group }}"
+  when: kafka_tarball.changed
+
+- name: Deploy server.properties
+  template:
+    src: server.properties.j2
+    dest: "{{ kafka_home }}/config/kraft/server.properties"
+    owner: "{{ kafka_user }}"
+    group: "{{ kafka_group }}"
+    mode: "0640"
+  notify: restart kafka
+
+- name: Format KRaft storage
+  command: >
+    {{ kafka_home }}/bin/kafka-storage.sh format
+    -t {{ cluster_id }}
+    -c {{ kafka_home }}/config/kraft/server.properties
+  become: yes
+  become_user: "{{ kafka_user }}"
+  args:
+    creates: "{{ kafka_data_dir }}/meta.properties"
+
+- name: Deploy systemd service unit
+  template:
+    src: kafka.service.j2
+    dest: /etc/systemd/system/kafka.service
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart kafka
+
+- name: Enable and start Kafka
+  systemd:
+    name: kafka
+    enabled: yes
+    state: started
+    daemon_reload: yes

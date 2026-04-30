@@ -1,0 +1,32 @@
+---
+kafka_version: "3.7.0"
+kafka_scala_version: "2.13"
+kafka_user: kafka
+kafka_group: kafka
+kafka_home: /opt/kafka
+kafka_data_dir: /var/kafka/data
+kafka_log_dir: /var/log/kafka
+kafka_heap_opts: "-Xmx4G -Xms4G"
+
+# Replication / durability
+kafka_num_partitions: 3
+kafka_default_replication_factor: 3
+kafka_min_insync_replicas: 2
+kafka_offsets_topic_replication_factor: 3
+kafka_transaction_state_log_replication_factor: 3
+kafka_transaction_state_log_min_isr: 2
+
+# Retention
+kafka_log_retention_hours: 168
+kafka_log_segment_bytes: 1073741824
+kafka_log_retention_check_interval_ms: 300000
+
+# Network
+kafka_num_network_threads: 8
+kafka_num_io_threads: 16
+kafka_socket_send_buffer_bytes: 102400
+kafka_socket_receive_buffer_bytes: 102400
+kafka_socket_request_max_bytes: 104857600
+
+# External listener port (Envoy connects here)
+kafka_external_port: 9094

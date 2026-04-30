@@ -1,0 +1,39 @@
+# ── KRaft Identity ────────────────────────────────────────────────────────────
+node.id={{ node_id }}
+process.roles=broker,controller
+
+# ── KRaft Controller Quorum ──────────────────────────────────────────────────
+controller.quorum.voters={% for host in groups['kafka'] %}{{ hostvars[host]['node_id'] }}@{{ hostvars[host]['ansible_host'] }}:9093{% if not loop.last %},{% endif %}{% endfor %}
+
+# ── Listeners ─────────────────────────────────────────────────────────────────
+# INTERNAL  – inter-broker replication (plaintext, stays on private network)
+# EXTERNAL  – client connections routed via Envoy mTLS (Envoy connects here in plaintext)
+# CONTROLLER – KRaft consensus (plaintext, private network only)
+listeners=INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:{{ kafka_external_port }},CONTROLLER://0.0.0.0:9093
+advertised.listeners=INTERNAL://{{ ansible_host }}:9092,EXTERNAL://{{ vip }}:{{ 19091 + node_id | int }}
+listener.security.protocol.map=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+inter.broker.listener.name=INTERNAL
+controller.listener.names=CONTROLLER
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+log.dirs={{ kafka_data_dir }}
+
+# ── Topic Defaults ────────────────────────────────────────────────────────────
+num.partitions={{ kafka_num_partitions }}
+default.replication.factor={{ kafka_default_replication_factor }}
+min.insync.replicas={{ kafka_min_insync_replicas }}
+offsets.topic.replication.factor={{ kafka_offsets_topic_replication_factor }}
+transaction.state.log.replication.factor={{ kafka_transaction_state_log_replication_factor }}
+transaction.state.log.min.isr={{ kafka_transaction_state_log_min_isr }}
+
+# ── Network Threads ───────────────────────────────────────────────────────────
+num.network.threads={{ kafka_num_network_threads }}
+num.io.threads={{ kafka_num_io_threads }}
+socket.send.buffer.bytes={{ kafka_socket_send_buffer_bytes }}
+socket.receive.buffer.bytes={{ kafka_socket_receive_buffer_bytes }}
+socket.request.max.bytes={{ kafka_socket_request_max_bytes }}
+
+# ── Log Retention ─────────────────────────────────────────────────────────────
+log.retention.hours={{ kafka_log_retention_hours }}
+log.segment.bytes={{ kafka_log_segment_bytes }}
+log.retention.check.interval.ms={{ kafka_log_retention_check_interval_ms }}

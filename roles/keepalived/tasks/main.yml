@@ -1,0 +1,33 @@
+---
+- name: Install keepalived
+  apt:
+    name: keepalived
+    state: present
+
+- name: Deploy keepalived configuration
+  template:
+    src: keepalived.conf.j2
+    dest: /etc/keepalived/keepalived.conf
+    owner: root
+    group: root
+    mode: "0640"
+  notify: restart keepalived
+
+- name: Enable and start keepalived
+  systemd:
+    name: keepalived
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: Verify VIP is active on primary
+  command: ip addr show
+  register: ip_show
+  changed_when: false
+
+- name: Assert VIP assigned on primary envoy
+  assert:
+    that: vip in ip_show.stdout
+    msg: "VIP {{ vip }} not found on {{ inventory_hostname }} – check keepalived logs"
+  when: inventory_hostname == groups['envoy'][0]
+  ignore_errors: yes

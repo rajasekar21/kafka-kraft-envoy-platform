@@ -1,0 +1,68 @@
+---
+- name: Add Envoy APT signing key
+  apt_key:
+    url: https://apt.envoyproxy.io/signing.key
+    state: present
+
+- name: Add Envoy APT repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://apt.envoyproxy.io {{ ansible_distribution_release }} main"
+    state: present
+    filename: envoy
+
+- name: Install Envoy
+  apt:
+    name: envoy
+    state: present
+    update_cache: yes
+
+- name: Create Envoy config and TLS directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  loop:
+    - /etc/envoy
+    - "{{ tls_dir }}"
+
+- name: Deploy Envoy TLS certificates
+  copy:
+    src: "/etc/kafka-pki/{{ item.src }}"
+    dest: "{{ tls_dir }}/{{ item.dest }}"
+    remote_src: yes
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: ca.crt,     dest: ca.crt,     mode: "0644" }
+    - { src: server.crt, dest: server.crt, mode: "0644" }
+    - { src: server.key, dest: server.key, mode: "0600" }
+  notify: restart envoy
+
+- name: Deploy Envoy configuration
+  template:
+    src: envoy.yaml.j2
+    dest: /etc/envoy/envoy.yaml
+    owner: root
+    group: root
+    mode: "0640"
+    validate: "envoy --mode validate -c %s"
+  notify: restart envoy
+
+- name: Deploy Envoy systemd service override
+  template:
+    src: envoy.service.j2
+    dest: /etc/systemd/system/envoy.service
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart envoy
+
+- name: Enable and start Envoy
+  systemd:
+    name: envoy
+    enabled: yes
+    state: started
+    daemon_reload: yes

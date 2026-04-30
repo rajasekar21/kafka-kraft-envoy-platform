@@ -1,0 +1,132 @@
+admin:
+  address:
+    socket_address: { address: 0.0.0.0, port_value: 9901 }
+
+static_resources:
+
+  # ── Listeners ────────────────────────────────────────────────────────────
+  # One TLS listener per Kafka broker so that Kafka metadata responses return
+  # per-broker Envoy ports (envoy:19092/19093/19094) and all client connections
+  # are always funnelled through Envoy mTLS.
+
+  listeners:
+
+  - name: kafka_broker_1
+    address:
+      socket_address: { address: 0.0.0.0, port_value: 19092 }
+    filter_chains:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          require_client_certificate: true
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain: { filename: /etc/envoy/tls/server.crt }
+              private_key:       { filename: /etc/envoy/tls/server.key }
+            validation_context:
+              trusted_ca:        { filename: /etc/envoy/tls/ca.crt }
+      filters:
+      # Kafka-protocol filter – parses requests/responses for observability stats
+      - name: envoy.filters.network.kafka_broker
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.kafka_broker.v3.KafkaBroker
+          stat_prefix: kafka_broker_1
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: tcp_broker_1
+          cluster: kafka_broker_1_cluster
+
+  - name: kafka_broker_2
+    address:
+      socket_address: { address: 0.0.0.0, port_value: 19093 }
+    filter_chains:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          require_client_certificate: true
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain: { filename: /etc/envoy/tls/server.crt }
+              private_key:       { filename: /etc/envoy/tls/server.key }
+            validation_context:
+              trusted_ca:        { filename: /etc/envoy/tls/ca.crt }
+      filters:
+      - name: envoy.filters.network.kafka_broker
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.kafka_broker.v3.KafkaBroker
+          stat_prefix: kafka_broker_2
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: tcp_broker_2
+          cluster: kafka_broker_2_cluster
+
+  - name: kafka_broker_3
+    address:
+      socket_address: { address: 0.0.0.0, port_value: 19094 }
+    filter_chains:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          require_client_certificate: true
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain: { filename: /etc/envoy/tls/server.crt }
+              private_key:       { filename: /etc/envoy/tls/server.key }
+            validation_context:
+              trusted_ca:        { filename: /etc/envoy/tls/ca.crt }
+      filters:
+      - name: envoy.filters.network.kafka_broker
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.kafka_broker.v3.KafkaBroker
+          stat_prefix: kafka_broker_3
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: tcp_broker_3
+          cluster: kafka_broker_3_cluster
+
+  # ── Clusters ─────────────────────────────────────────────────────────────
+  # Each cluster reaches the broker's EXTERNAL plaintext listener (:9094).
+
+  clusters:
+
+  - name: kafka_broker_1_cluster
+    type: STRICT_DNS
+    dns_lookup_family: V4_ONLY
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: kafka_broker_1_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address: { address: kafka1, port_value: 9094 }
+
+  - name: kafka_broker_2_cluster
+    type: STRICT_DNS
+    dns_lookup_family: V4_ONLY
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: kafka_broker_2_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address: { address: kafka2, port_value: 9094 }
+
+  - name: kafka_broker_3_cluster
+    type: STRICT_DNS
+    dns_lookup_family: V4_ONLY
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: kafka_broker_3_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address: { address: kafka3, port_value: 9094 }

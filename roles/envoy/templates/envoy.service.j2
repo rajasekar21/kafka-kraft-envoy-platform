@@ -1,0 +1,21 @@
+[Unit]
+Description=Envoy Proxy (Kafka mTLS Gateway)
+Documentation=https://www.envoyproxy.io/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=envoy
+Group=envoy
+ExecStartPre=/usr/bin/envoy --mode validate -c /etc/envoy/envoy.yaml
+ExecStart=/usr/bin/envoy -c /etc/envoy/envoy.yaml --log-level warn
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+NoNewPrivileges=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

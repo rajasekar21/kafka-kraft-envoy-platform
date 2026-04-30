@@ -1,0 +1,51 @@
+admin:
+  address:
+    socket_address: { address: 127.0.0.1, port_value: 9901 }
+
+static_resources:
+
+  listeners:
+{% for host in groups['kafka'] %}
+{% set broker_port = 19091 + hostvars[host]['node_id'] | int %}
+  - name: kafka_broker_{{ hostvars[host]['node_id'] }}
+    address:
+      socket_address: { address: 0.0.0.0, port_value: {{ broker_port }} }
+    filter_chains:
+    - transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+          require_client_certificate: true
+          common_tls_context:
+            tls_certificates:
+            - certificate_chain: { filename: {{ tls_dir }}/server.crt }
+              private_key:       { filename: {{ tls_dir }}/server.key }
+            validation_context:
+              trusted_ca:        { filename: {{ tls_dir }}/ca.crt }
+      filters:
+      - name: envoy.filters.network.kafka_broker
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.kafka_broker.v3.KafkaBroker
+          stat_prefix: kafka_broker_{{ hostvars[host]['node_id'] }}
+      - name: envoy.filters.network.tcp_proxy
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy
+          stat_prefix: tcp_broker_{{ hostvars[host]['node_id'] }}
+          cluster: kafka_broker_{{ hostvars[host]['node_id'] }}_cluster
+{% endfor %}
+
+  clusters:
+{% for host in groups['kafka'] %}
+  - name: kafka_broker_{{ hostvars[host]['node_id'] }}_cluster
+    type: STATIC
+    connect_timeout: 5s
+    load_assignment:
+      cluster_name: kafka_broker_{{ hostvars[host]['node_id'] }}_cluster
+      endpoints:
+      - lb_endpoints:
+        - endpoint:
+            address:
+              socket_address:
+                address: {{ hostvars[host]['ansible_host'] }}
+                port_value: {{ kafka_external_port | default(9094) }}
+{% endfor %}
