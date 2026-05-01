@@ -7,7 +7,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CERTS_DIR="$REPO_ROOT/certs"
 NETWORK="kafka-kraft-envoy-platform_kafka-net"
-KAFKA_IMAGE="apache/kafka:3.7.0"
+KAFKA_IMAGE="apache/kafka:3.9.0"
 BOOTSTRAP="envoy:19092,envoy:19093,envoy:19094"
 TEST_TOPIC="smoke-test-$(date +%s)"
 PASSED=0

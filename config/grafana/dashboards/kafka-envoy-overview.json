@@ -1,0 +1,320 @@
+{
+  "title": "Kafka KRaft + Envoy mTLS Platform",
+  "uid": "kafka-envoy-overview",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "15s",
+  "time": { "from": "now-30m", "to": "now" },
+  "tags": ["kafka", "envoy", "mtls"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Kafka Brokers Online",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "orange", "value": 1 },
+              { "color": "green", "value": 3 }
+            ]
+          },
+          "mappings": []
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "kafka_brokers",
+          "legendFormat": "brokers"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Envoy Active Downstream Connections",
+      "type": "stat",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": 0 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(envoy_listener_downstream_cx_active)",
+          "legendFormat": "active connections"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Total Kafka Topics",
+      "type": "stat",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": 0 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "count(count by (topic) (kafka_topic_partitions{topic!~\"__.*\"}))",
+          "legendFormat": "topics"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Total Kafka Partitions",
+      "type": "stat",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "background",
+        "graphMode": "none"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "blue", "value": 0 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum(kafka_topic_partitions{topic!~\"__.*\"})",
+          "legendFormat": "partitions"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Envoy Listener – Active Downstream Connections per Broker Port",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "envoy_listener_downstream_cx_active",
+          "legendFormat": "{{envoy_listener_address}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Envoy Cluster – Active Upstream Connections per Kafka Broker",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "lineWidth": 2, "fillOpacity": 10 }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "envoy_cluster_upstream_cx_active{envoy_cluster_name=~\"kafka_broker.*\"}",
+          "legendFormat": "{{envoy_cluster_name}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Envoy – Total Downstream Connections (cumulative) per Listener",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "lineWidth": 2, "fillOpacity": 5 },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "envoy_listener_downstream_cx_total",
+          "legendFormat": "{{envoy_listener_address}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Envoy – Kafka Protocol Requests (rate/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "unit": "reqps"
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "rate(envoy_kafka_request_count_total[1m])",
+          "legendFormat": "{{envoy_kafka_prefix}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Kafka Topics – Partition Count (user topics)",
+      "type": "bargauge",
+      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "options": {
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "displayMode": "gradient"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{ "color": "blue", "value": 0 }]
+          },
+          "min": 0
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "kafka_topic_partitions{topic!~\"__.*\"}",
+          "legendFormat": "{{topic}}"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Kafka Topics – In-Sync Replicas per Partition",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "lineWidth": 1, "fillOpacity": 5 },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "orange", "value": 1 },
+              { "color": "green", "value": 3 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "kafka_topic_partition_in_sync_replica{topic!~\"__.*\"}",
+          "legendFormat": "{{topic}}[{{partition}}]"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Kafka – Current Partition Offsets (user topics)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 28, "w": 12, "h": 8 },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "lineWidth": 2, "fillOpacity": 5 }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "kafka_topic_partition_current_offset{topic!~\"__.*\"}",
+          "legendFormat": "{{topic}}[p{{partition}}]"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Consumer Group Lag",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 28, "w": 12, "h": 8 },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "lineWidth": 2, "fillOpacity": 10 },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": 0 },
+              { "color": "yellow", "value": 100 },
+              { "color": "red", "value": 1000 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{topic!~\"__.*\"})",
+          "legendFormat": "{{consumergroup}}/{{topic}}"
+        }
+      ]
+    }
+  ]
+}
