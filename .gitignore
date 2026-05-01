@@ -1,0 +1,7 @@
+# Generated TLS certificates – never commit private keys
+certs/
+
+# Local runtime artifacts
+*.log
+__pycache__/
+*.pyc
