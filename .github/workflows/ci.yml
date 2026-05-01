@@ -1,0 +1,103 @@
+name: CI – Lint, Deploy & Smoke Test
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+
+  # ── Lint ──────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ansible-lint
+        run: pip install ansible-lint yamllint
+
+      - name: Lint Ansible playbooks and roles
+        run: ansible-lint playbooks/site.yml || true
+
+      - name: Validate YAML files
+        run: |
+          yamllint -d relaxed \
+            docker-compose.yml \
+            config/envoy/envoy.yaml \
+            playbooks/site.yml \
+            inventories/prod/group_vars/all.yml
+
+      - name: Lint shell scripts
+        run: |
+          find scripts/ -name "*.sh" -exec bash -n {} \; -print
+
+  # ── Deploy & Smoke Test ───────────────────────────────────────────────────
+  smoke-test:
+    name: Deploy + Smoke Test
+    runs-on: ubuntu-latest
+    needs: lint
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate TLS certificates
+        run: bash scripts/generate-certs.sh
+
+      - name: Start Docker Compose stack
+        run: docker compose up -d
+
+      - name: Wait for Kafka brokers to be healthy
+        run: |
+          for broker in kafka1 kafka2 kafka3; do
+            echo "Waiting for $broker..."
+            for i in $(seq 1 36); do
+              status=$(docker inspect -f '{{.State.Health.Status}}' $broker 2>/dev/null || echo "unknown")
+              if [ "$status" = "healthy" ]; then
+                echo "$broker is healthy"
+                break
+              fi
+              if [ "$i" -eq 36 ]; then
+                echo "$broker did not become healthy in time"
+                docker logs $broker --tail 50
+                exit 1
+              fi
+              sleep 5
+            done
+          done
+
+      - name: Wait for Envoy to be ready
+        run: |
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:9901/ready 2>/dev/null | grep -q LIVE; then
+              echo "Envoy is ready"
+              break
+            fi
+            if [ "$i" -eq 20 ]; then
+              echo "Envoy did not become ready in time"
+              docker logs envoy --tail 30
+              exit 1
+            fi
+            sleep 3
+          done
+
+      - name: Show stack status
+        run: docker compose ps
+
+      - name: Run smoke test suite
+        run: bash scripts/kafka-smoke-test.sh
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== kafka1 logs ===" && docker logs kafka1 --tail 100 || true
+          echo "=== kafka2 logs ===" && docker logs kafka2 --tail 100 || true
+          echo "=== kafka3 logs ===" && docker logs kafka3 --tail 100 || true
+          echo "=== envoy logs  ===" && docker logs envoy  --tail 100 || true
+          echo "=== Envoy stats ===" && curl -sf http://localhost:9901/stats || true
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose down -v --remove-orphans
