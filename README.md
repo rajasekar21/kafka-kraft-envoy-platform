@@ -64,50 +64,150 @@ All components are **latest stable open-source** releases:
 
 ## Architecture
 
-```
-                         ┌─────────────────────────────────────────────────────┐
-                         │                  Docker / Bare Metal                │
-                         │                                                     │
-  Kafka Client           │   ┌──────────────────────────────────┐              │
-  (mTLS + client cert)   │   │           Envoy v1.33            │              │
-  ──────────────────► :19092 │  - mTLS termination              │──► kafka1:9094
-                         │   │  - Per-broker TCP routing        │──► kafka2:9094
-                         │  :19093  - Kafka protocol filter      │──► kafka3:9094
-                         │  :19094  - Admin API :9901            │              │
-                         │   └──────────────────────────────────┘              │
-                         │                   │ plaintext                       │
-                         │                   ▼                                 │
-                         │   ┌──────────────────────────────────┐              │
-                         │   │     Kafka KRaft 3.9.0 Cluster    │              │
-                         │   │  kafka1 (broker+controller) :9092│              │
-                         │   │  kafka2 (broker+controller) :9092│              │
-                         │   │  kafka3 (broker+controller) :9092│              │
-                         │   └──────────────────────────────────┘              │
-                         │          │ internal plaintext                       │
-                         │          ▼                                          │
-                         │   ┌─────────────────┐   ┌──────────────────────┐   │
-                         │   │ kafka-exporter  │   │      Prometheus      │   │
-                         │   │   v1.9.0 :9308  │──►│      v3.2.1 :9090    │   │
-                         │   └─────────────────┘   └──────────┬───────────┘   │
-                         │                                     │               │
-                         │                                     ▼               │
-                         │                          ┌──────────────────────┐   │
-                         │                          │    Grafana 11.5.0    │   │
-                         │                          │        :3000         │   │
-                         │                          └──────────────────────┘   │
-                         └─────────────────────────────────────────────────────┘
+### Platform Topology
+
+```mermaid
+flowchart TB
+    subgraph BANK["Bank Zone — External mTLS Clients"]
+        direction LR
+        B1["Bank Client 1\n──────────────\nConsumer Group\nbench-bank-client-1"]
+        B2["Bank Client 2\n──────────────\nConsumer Group\nbench-bank-client-2"]
+        B3["Bank Client 3\n──────────────\nConsumer Group\nbench-bank-client-3"]
+    end
+
+    subgraph ENVOY["Envoy v1.33 — mTLS Termination · Kafka Protocol Filter · Admin :9901"]
+        direction LR
+        L1[":19092\n→ kafka1"]
+        L2[":19093\n→ kafka2"]
+        L3[":19094\n→ kafka3"]
+    end
+
+    subgraph KAFKA["Kafka KRaft Cluster v3.9.0 — 3 Brokers · RF=3 · 9 Partitions"]
+        direction LR
+        K1["kafka1\nBroker + Controller\n:9092 internal\n:9093 KRaft\n:9094 proxy-facing"]
+        K2["kafka2\nBroker + Controller\n:9092 internal\n:9093 KRaft\n:9094 proxy-facing"]
+        K3["kafka3\nBroker + Controller\n:9092 internal\n:9093 KRaft\n:9094 proxy-facing"]
+    end
+
+    subgraph MON["Observability Stack"]
+        direction LR
+        KE["kafka-exporter\nv1.9.0 · :9308"]
+        PROM["Prometheus\nv3.2.1 · :9090"]
+        GRAF["Grafana\n11.5.0 · :3000"]
+    end
+
+    PROD["Internal Producers\n(Same-zone · PLAINTEXT · :9092)"]
+
+    B1 -->|"mTLS :19092\nclient cert required"| L1
+    B2 -->|"mTLS :19093\nclient cert required"| L2
+    B3 -->|"mTLS :19094\nclient cert required"| L3
+
+    L1 -->|"PLAINTEXT :9094"| K1
+    L2 -->|"PLAINTEXT :9094"| K2
+    L3 -->|"PLAINTEXT :9094"| K3
+
+    PROD -->|"PLAINTEXT :9092"| K1
+    PROD -->|"PLAINTEXT :9092"| K2
+    PROD -->|"PLAINTEXT :9092"| K3
+
+    K1 <-->|"KRaft quorum :9093"| K2
+    K2 <-->|"KRaft quorum :9093"| K3
+    K3 <-->|"KRaft quorum :9093"| K1
+
+    KE -->|"PLAINTEXT :9092"| K1
+    KE -->|"PLAINTEXT :9092"| K2
+    KE -->|"PLAINTEXT :9092"| K3
+    PROM -->|"scrape :9308"| KE
+    PROM -->|"scrape :9901\n/stats/prometheus"| ENVOY
+    GRAF -->|"PromQL :9090"| PROM
+
+    classDef bank      fill:#dbeafe,stroke:#2563eb,color:#1e3a5f,font-weight:bold
+    classDef envoy     fill:#dcfce7,stroke:#16a34a,color:#14532d,font-weight:bold
+    classDef kafka     fill:#fef9c3,stroke:#ca8a04,color:#713f12,font-weight:bold
+    classDef mon       fill:#fce7f3,stroke:#db2777,color:#831843,font-weight:bold
+    classDef producer  fill:#f3e8ff,stroke:#9333ea,color:#4a044e,font-weight:bold
+
+    class B1,B2,B3 bank
+    class L1,L2,L3 envoy
+    class K1,K2,K3 kafka
+    class KE,PROM,GRAF mon
+    class PROD producer
 ```
 
-### Listener Layout
+### Produce & Consume Data Flow
 
-| Listener | Protocol | Purpose |
-|---|---|---|
-| `kafka1/2/3:9092` | PLAINTEXT | Internal broker-to-broker + exporter |
-| `kafka1/2/3:9093` | PLAINTEXT | KRaft controller quorum |
-| `kafka1/2/3:9094` | PLAINTEXT | Envoy → Kafka (internal forwarding) |
-| `envoy:19092` | mTLS | External client → kafka1 |
-| `envoy:19093` | mTLS | External client → kafka2 |
-| `envoy:19094` | mTLS | External client → kafka3 |
+```mermaid
+flowchart LR
+    subgraph PRODUCE["① Produce  —  Internal PLAINTEXT  (same-zone, no TLS)"]
+        direction TB
+        P1["Producer"] -->|"bootstrap :9092\nacks=all\nLZ4 compression"| KL["Kafka Leader\n(partition owner)"]
+        KL -->|"replicate"| KF1["Follower Replica"]
+        KL -->|"replicate"| KF2["Follower Replica"]
+        KF1 & KF2 -->|"ISR ack"| KL
+        KL -->|"ack to producer\n(min.isr=2 satisfied)"| P1
+    end
+
+    subgraph CONSUME["② Consume  —  External mTLS  (bank-side, via Envoy)"]
+        direction TB
+        C["Bank Consumer"] -->|"TLS ClientHello\n+ client certificate"| EV["Envoy :19092-19094\nmTLS termination"]
+        EV -->|"validate CA\nreject if no cert"| EV
+        EV -->|"PLAINTEXT\nforward :9094"| BR["Kafka Broker\n(fetch response)"]
+        BR -->|"records"| EV
+        EV -->|"TLS-encrypted\nrecords"| C
+    end
+```
+
+### Network Zones & Port Reference
+
+```mermaid
+flowchart LR
+    subgraph EXT["External  (Bank Network)"]
+        CL["Kafka Client\nbootstrap: envoy:19092,19093,19094\nprotocol: SSL\nclient cert: required"]
+    end
+
+    subgraph DMZ["Envoy Ingress  (mTLS Boundary)"]
+        E1["envoy:19092\nmTLS → kafka1:9094"]
+        E2["envoy:19093\nmTLS → kafka2:9094"]
+        E3["envoy:19094\nmTLS → kafka3:9094"]
+        EA["envoy:9901\nAdmin / Prometheus metrics"]
+    end
+
+    subgraph INT["Internal  (Kafka Network)"]
+        K1["kafka1\n:9092 client\n:9093 controller\n:9094 proxy"]
+        K2["kafka2\n:9092 client\n:9093 controller\n:9094 proxy"]
+        K3["kafka3\n:9092 client\n:9093 controller\n:9094 proxy"]
+    end
+
+    subgraph OBS["Observability  (Internal)"]
+        KE["kafka-exporter :9308"]
+        PR["Prometheus :9090"]
+        GR["Grafana :3000"]
+    end
+
+    CL -->|mTLS| E1 & E2 & E3
+    E1 -->|PLAINTEXT| K1
+    E2 -->|PLAINTEXT| K2
+    E3 -->|PLAINTEXT| K3
+    K1 <-->|KRaft| K2 <-->|KRaft| K3
+    KE -->|PLAINTEXT| K1 & K2 & K3
+    PR -->|scrape| KE & EA
+    GR -->|query| PR
+```
+
+### Listener Port Reference
+
+| Port | Host | Protocol | Direction | Purpose |
+|---|---|---|---|---|
+| `9092` | kafka1/2/3 | PLAINTEXT | Internal | Broker client listener (producers, exporter, inter-broker) |
+| `9093` | kafka1/2/3 | PLAINTEXT | Internal | KRaft controller quorum |
+| `9094` | kafka1/2/3 | PLAINTEXT | Internal | Envoy upstream (proxy-facing) |
+| `19092` | envoy | **mTLS** | External | Bank client → kafka1 |
+| `19093` | envoy | **mTLS** | External | Bank client → kafka2 |
+| `19094` | envoy | **mTLS** | External | Bank client → kafka3 |
+| `9901` | envoy | HTTP | Internal | Envoy admin API + `/stats/prometheus` |
+| `9308` | kafka-exporter | HTTP | Internal | Prometheus scrape endpoint |
+| `9090` | prometheus | HTTP | Internal | Prometheus UI + query API |
+| `3000` | grafana | HTTP | Internal | Grafana dashboards (`admin` / `kafka123`) |
 
 ---
 
