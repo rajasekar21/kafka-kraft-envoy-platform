@@ -68,75 +68,63 @@ All components are **latest stable open-source** releases:
 
 ```mermaid
 flowchart TB
-    subgraph CLIENTS["External Clients — Bank Network"]
+    subgraph BANK["External  ·  Bank Network"]
         direction LR
-        BC["Bank Consumers\n(mTLS client certs required)"]
-        BP["Bank Producers\n(mTLS client certs required)"]
+        BC["Bank Consumers"]
+        BP["Bank Producers"]
     end
 
-    subgraph HA["High Availability — Keepalived VIP"]
-        VIP["Virtual IP\nkafka.bank.example.com:443\n(Active-Passive VRRP)"]
-        subgraph ENVOY_TIER["Envoy Ingress Tier"]
-            direction LR
-            ENV1["Envoy Node 1\n● Active\nmTLS termination\nKafka filter\n:19092-19094"]
-            ENV2["Envoy Node 2\n○ Passive\nStandby — promotes\nin < 2 s on failure"]
-        end
-        VIP -->|"routes to active"| ENV1
-        VIP -. "failover" .-> ENV2
-    end
+    VIP(["Keepalived VIP\nkafka.bank.example.com : 443\nActive-Passive  ·  &lt; 2 s failover"])
 
-    subgraph KAFKA["Kafka KRaft Cluster — 3 Nodes · RF=3 · ISR≥2"]
+    subgraph ENVOY["Envoy Ingress  ·  mTLS Termination  ·  Kafka Protocol Filter"]
         direction LR
-        K1["kafka1\nBroker + Controller\n:9092 / :9093 / :9094"]
-        K2["kafka2\nBroker + Controller\n:9092 / :9093 / :9094"]
-        K3["kafka3\nBroker + Controller\n:9092 / :9093 / :9094"]
-        K1 <-->|"KRaft quorum :9093"| K2
-        K2 <-->|"KRaft quorum :9093"| K3
-        K3 <-->|"KRaft quorum :9093"| K1
+        EA["Node 1  ●  Active\n:19092 · :19093 · :19094"]
+        EB["Node 2  ○  Standby"]
     end
 
-    subgraph OBS["Observability Stack"]
+    subgraph KAFKA["Kafka KRaft Cluster  ·  3 Brokers  ·  RF = 3  ·  ISR ≥ 2"]
         direction LR
-        KE["kafka-exporter\n:9308"]
-        PROM["Prometheus\n:9090"]
-        GRAF["Grafana\n:3000"]
-        KE --> PROM --> GRAF
+        K1["kafka1\nBroker + Controller\n:9092 | :9093 | :9094"]
+        K2["kafka2\nBroker + Controller\n:9092 | :9093 | :9094"]
+        K3["kafka3\nBroker + Controller\n:9092 | :9093 | :9094"]
+        K1 <-->|"KRaft :9093"| K2
+        K2 <-->|"KRaft :9093"| K3
+        K3 <-->|"KRaft :9093"| K1
     end
 
-    IPROD["Internal Producers\n(same zone · PLAINTEXT :9092)"]
-    PKI["Internal CA\n(cert generation & rotation)"]
+    subgraph OBS["Observability"]
+        direction LR
+        KE["kafka-exporter\n:9308"] --> PR["Prometheus\n:9090"] --> GF["Grafana\n:3000"]
+    end
 
-    BC -->|"mTLS :443 → VIP"| VIP
-    BP -->|"mTLS :443 → VIP"| VIP
-    ENV1 -->|"PLAINTEXT :9094"| K1
-    ENV1 -->|"PLAINTEXT :9094"| K2
-    ENV1 -->|"PLAINTEXT :9094"| K3
-    IPROD -->|"PLAINTEXT :9092"| K1
-    IPROD -->|"PLAINTEXT :9092"| K2
-    IPROD -->|"PLAINTEXT :9092"| K3
-    KE -->|"scrape :9092"| K1
-    KE -->|"scrape :9092"| K2
-    KE -->|"scrape :9092"| K3
-    PROM -->|"scrape :9901"| ENV1
-    PKI -. "issues certs" .-> ENV1
-    PKI -. "issues certs" .-> ENV2
-    PKI -. "issues certs" .-> CLIENTS
+    IP["Internal Producers\nPLAINTEXT · :9092"]
+    CA["Internal CA\nCert Issuance & Rotation"]
 
-    classDef clients  fill:#dbeafe,stroke:#2563eb,color:#1e3a5f,font-weight:bold
-    classDef vip      fill:#fef3c7,stroke:#d97706,color:#78350f,font-weight:bold
-    classDef envoy    fill:#dcfce7,stroke:#16a34a,color:#14532d,font-weight:bold
-    classDef kafka    fill:#fef9c3,stroke:#ca8a04,color:#713f12,font-weight:bold
-    classDef obs      fill:#fce7f3,stroke:#db2777,color:#831843,font-weight:bold
-    classDef internal fill:#f3e8ff,stroke:#9333ea,color:#4a044e,font-weight:bold
-    classDef pki      fill:#f1f5f9,stroke:#64748b,color:#1e293b,font-weight:bold
+    BANK  -->|"mTLS :443"| VIP
+    VIP   -->|"active"| EA
+    VIP   -. "failover" .-> EB
+    EA    -->|"PLAINTEXT :9094"| KAFKA
+    IP    -->|"PLAINTEXT :9092"| KAFKA
+    KE    -->|"scrape :9092"| KAFKA
+    PR    -->|"scrape :9901"| EA
+    CA    -. "certs" .-> BANK
+    CA    -. "certs" .-> ENVOY
 
-    class BC,BP clients
+    classDef bank   fill:#dbeafe,stroke:#2563eb,color:#1e3a5f,font-weight:bold
+    classDef vip    fill:#fef3c7,stroke:#d97706,color:#78350f,font-weight:bold
+    classDef envoy  fill:#dcfce7,stroke:#16a34a,color:#14532d,font-weight:bold
+    classDef kafka  fill:#fef9c3,stroke:#ca8a04,color:#713f12,font-weight:bold
+    classDef obs    fill:#fce7f3,stroke:#db2777,color:#831843,font-weight:bold
+    classDef side   fill:#f3e8ff,stroke:#9333ea,color:#4a044e,font-weight:bold
+    classDef ca     fill:#f1f5f9,stroke:#64748b,color:#1e293b,font-weight:bold
+
+    class BC,BP bank
     class VIP vip
-    class ENV1,ENV2 envoy
+    class EA,EB envoy
     class K1,K2,K3 kafka
-    class KE,PROM,GRAF obs
-    class IPROD internal
-    class PKI pki
+    class KE,PR,GF obs
+    class IP side
+    class CA ca
 ```
 
 ### Platform Topology
