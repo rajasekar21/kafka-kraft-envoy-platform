@@ -1,4 +1,17 @@
-kafka_version: 3.7.0
+kafka_version: 3.9.0
 kafka_user: kafka
-tls_dir: /etc/envoy/tls
 cluster_id: REPLACE_ME
+
+# PKI
+tls_dir: /etc/kafka-pki
+pkcs12_password: "changeit"
+
+# Kroxylicious
+kroxylicious_version: "0.9.0"
+kroxylicious_bootstrap_port: 9292
+kroxylicious_broker_start_port: 9293
+kroxylicious_broker_count: 3
+kroxylicious_admin_port: 9000
+
+# Keepalived VIP — shared across proxy layer (Kroxylicious HA)
+# vip and domain are defined in hosts.ini [all:vars]

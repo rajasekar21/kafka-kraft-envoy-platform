@@ -1,0 +1,10 @@
+---
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: restart kroxylicious
+  systemd:
+    name: kroxylicious
+    state: restarted
+    daemon_reload: yes

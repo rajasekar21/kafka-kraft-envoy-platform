@@ -1,11 +1,11 @@
 name: CI – Lint, Deploy & Smoke Test
 
 # Component versions in use (all open-source):
-#   apache/kafka               3.9.0   Apache-2.0
-#   envoyproxy/envoy-contrib   v1.33   Apache-2.0
-#   danielqsj/kafka-exporter   v1.9.0  Apache-2.0
-#   prom/prometheus            v3.2.1  Apache-2.0
-#   grafana/grafana            11.5.0  AGPL-3.0
+#   apache/kafka                      3.9.0   Apache-2.0
+#   quay.io/kroxylicious/kroxylicious  0.9.0   Apache-2.0
+#   danielqsj/kafka-exporter          v1.9.0  Apache-2.0
+#   prom/prometheus                   v3.2.1  Apache-2.0
+#   grafana/grafana                   11.5.0  AGPL-3.0
 
 on:
   push:
@@ -32,7 +32,7 @@ jobs:
         run: |
           yamllint -d relaxed \
             docker-compose.yml \
-            config/envoy/envoy.yaml \
+            config/kroxylicious/kroxylicious.yaml \
             config/prometheus/prometheus.yml \
             config/grafana/provisioning/datasources/prometheus.yml \
             config/grafana/provisioning/dashboards/dashboard.yml \
@@ -78,16 +78,16 @@ jobs:
             done
           done
 
-      - name: Wait for Envoy to be ready
+      - name: Wait for Kroxylicious to be ready
         run: |
-          for i in $(seq 1 20); do
-            if curl -sf http://localhost:9901/ready 2>/dev/null | grep -q LIVE; then
-              echo "Envoy is ready"
+          for i in $(seq 1 30); do
+            if curl -sf -o /dev/null http://localhost:9000/healthz 2>/dev/null; then
+              echo "Kroxylicious is ready"
               break
             fi
-            if [ "$i" -eq 20 ]; then
-              echo "Envoy did not become ready in time"
-              docker logs envoy --tail 30
+            if [ "$i" -eq 30 ]; then
+              echo "Kroxylicious did not become ready in time"
+              docker logs kroxylicious --tail 30
               exit 1
             fi
             sleep 3
@@ -114,12 +114,12 @@ jobs:
       - name: Run smoke test suite
         run: bash scripts/kafka-smoke-test.sh
 
-      - name: Verify Prometheus scraped Envoy metrics
+      - name: Verify Prometheus scraped Kroxylicious metrics
         run: |
           echo "=== Prometheus targets ==="
           curl -sf http://localhost:9090/api/v1/targets | python3 -m json.tool | grep -E '"health"|"scrapeUrl"' || true
-          echo "=== Envoy cluster metrics via Prometheus ==="
-          curl -sf "http://localhost:9090/api/v1/query?query=envoy_cluster_upstream_cx_active" | python3 -m json.tool || true
+          echo "=== Kroxylicious metrics via Prometheus ==="
+          curl -sf "http://localhost:9090/api/v1/query?query=jvm_memory_used_bytes" | python3 -m json.tool || true
 
       - name: Verify kafka-exporter metrics
         run: |
@@ -131,13 +131,13 @@ jobs:
       - name: Collect logs on failure
         if: failure()
         run: |
-          echo "=== kafka1 logs ===" && docker logs kafka1 --tail 100 || true
-          echo "=== kafka2 logs ===" && docker logs kafka2 --tail 100 || true
-          echo "=== kafka3 logs ===" && docker logs kafka3 --tail 100 || true
-          echo "=== envoy logs  ===" && docker logs envoy  --tail 100 || true
-          echo "=== prometheus  ===" && docker logs prometheus --tail 50 || true
-          echo "=== grafana     ===" && docker logs grafana --tail 50 || true
-          echo "=== Envoy stats ===" && curl -sf http://localhost:9901/stats || true
+          echo "=== kafka1 logs        ===" && docker logs kafka1        --tail 100 || true
+          echo "=== kafka2 logs        ===" && docker logs kafka2        --tail 100 || true
+          echo "=== kafka3 logs        ===" && docker logs kafka3        --tail 100 || true
+          echo "=== kroxylicious logs  ===" && docker logs kroxylicious  --tail 100 || true
+          echo "=== prometheus         ===" && docker logs prometheus    --tail 50  || true
+          echo "=== grafana            ===" && docker logs grafana        --tail 50  || true
+          echo "=== Kroxylicious metrics ===" && curl -sf http://localhost:9000/metrics || true
 
       - name: Tear down stack
         if: always()

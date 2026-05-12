@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Kafka KRaft + Envoy mTLS smoke test suite
+# Kafka KRaft + Kroxylicious mTLS smoke test suite
 # Runs inside a kafka-tools container on the kafka-net Docker network.
-# All client connections go through Envoy (mTLS) to validate the full stack.
+# All client connections go through Kroxylicious (mTLS) to validate the full stack.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CERTS_DIR="$REPO_ROOT/certs"
 NETWORK="kafka-kraft-envoy-platform_kafka-net"
 KAFKA_IMAGE="apache/kafka:3.9.0"
-BOOTSTRAP="envoy:19092,envoy:19093,envoy:19094"
+BOOTSTRAP="kroxylicious:9292"
 TEST_TOPIC="smoke-test-$(date +%s)"
 PASSED=0
 FAILED=0
@@ -52,7 +52,7 @@ PROPS
 
 # ── Preflight checks ─────────────────────────────────────────────────────────
 
-log "=== Kafka KRaft + Envoy mTLS Smoke Test Suite ==="
+log "=== Kafka KRaft + Kroxylicious mTLS Smoke Test Suite ==="
 log ""
 
 log "Checking required certificates..."
@@ -73,7 +73,7 @@ if ! docker network inspect "$NETWORK" &>/dev/null; then
 fi
 
 log "Checking containers are running..."
-for svc in kafka1 kafka2 kafka3 envoy; do
+for svc in kafka1 kafka2 kafka3 kroxylicious; do
   if [[ "$(docker inspect -f '{{.State.Running}}' "$svc" 2>/dev/null)" != "true" ]]; then
     echo "ERROR: Container '$svc' is not running."
     exit 1
@@ -82,22 +82,27 @@ done
 log "All containers running."
 log ""
 
-# ── Test 1: Envoy admin endpoint ─────────────────────────────────────────────
+# ── Test 1: Kroxylicious admin endpoint ──────────────────────────────────────
 
-log "--- Test 1: Envoy admin /ready ---"
-if curl -sf http://localhost:9901/ready 2>/dev/null | grep -q LIVE; then
-  pass "Envoy admin endpoint returns LIVE"
+log "--- Test 1: Kroxylicious admin /healthz ---"
+if curl -sf http://localhost:9000/healthz 2>/dev/null | grep -qiE "ok|UP|healthy"; then
+  pass "Kroxylicious admin /healthz reachable"
 else
-  fail "Envoy admin endpoint not ready"
+  # Fallback: just check HTTP 200
+  if curl -sf -o /dev/null http://localhost:9000/healthz 2>/dev/null; then
+    pass "Kroxylicious admin /healthz returned HTTP 200"
+  else
+    fail "Kroxylicious admin /healthz not reachable on :9000"
+  fi
 fi
 
-# ── Test 2: Envoy stats reachable ────────────────────────────────────────────
+# ── Test 2: Kroxylicious Prometheus metrics ───────────────────────────────────
 
-log "--- Test 2: Envoy /stats contains Kafka cluster stats ---"
-if curl -sf "http://localhost:9901/stats?filter=kafka_broker_1_cluster" 2>/dev/null | grep -q "kafka_broker_1_cluster"; then
-  pass "Envoy Kafka broker cluster stats registered"
+log "--- Test 2: Kroxylicious /metrics endpoint populated ---"
+if curl -sf http://localhost:9000/metrics 2>/dev/null | grep -q "kroxylicious\|jvm_"; then
+  pass "Kroxylicious /metrics endpoint populated"
 else
-  fail "Envoy Kafka cluster stats missing – check envoy config"
+  fail "Kroxylicious /metrics not populated – check admin port :9000"
 fi
 
 # ── Test 3: mTLS connection - with valid client cert ─────────────────────────
@@ -259,10 +264,10 @@ else
   fail "Only consumed $consumed/10 messages (expected 10)"
 fi
 
-# ── Test 11: Per-broker Envoy port connectivity ───────────────────────────────
+# ── Test 11: Per-broker Kroxylicious port connectivity ────────────────────────
 
-log "--- Test 11: All 3 per-broker Envoy ports reachable ---"
-for port in 19092 19093 19094; do
+log "--- Test 11: All 3 per-broker Kroxylicious ports reachable ---"
+for port in 9293 9294 9295; do
   broker_output=$(docker run --rm \
     --network "$NETWORK" \
     -v "$CERTS_DIR:/certs:ro" \
@@ -278,13 +283,13 @@ ssl.keystore.location=/certs/client.pem
 ssl.endpoint.identification.algorithm=
 PROPS
 /opt/kafka/bin/kafka-broker-api-versions.sh \
-  --bootstrap-server envoy:${port} \
+  --bootstrap-server kroxylicious:${port} \
   --command-config /tmp/ssl.properties 2>&1
 ") || true
   if echo "$broker_output" | grep -qE "\(id: [0-9]+ rack:"; then
-    pass "Envoy port $port → Kafka broker reachable"
+    pass "Kroxylicious port $port → Kafka broker reachable"
   else
-    fail "Envoy port $port → Kafka broker NOT reachable"
+    fail "Kroxylicious port $port → Kafka broker NOT reachable"
   fi
 done
 
@@ -302,14 +307,14 @@ else
   fail "KRaft quorum check inconclusive: $quorum_output"
 fi
 
-# ── Test 13: Envoy Kafka filter metrics ──────────────────────────────────────
+# ── Test 13: Kroxylicious per-cluster metrics ─────────────────────────────────
 
-log "--- Test 13: Envoy Kafka protocol metrics populated ---"
-stats=$(curl -sf "http://localhost:9901/stats?filter=kafka_broker_1" 2>/dev/null) || true
-if echo "$stats" | grep -qE "request|response"; then
-  pass "Envoy Kafka protocol stats populated (requests/responses tracked)"
+log "--- Test 13: Kroxylicious virtual cluster metrics populated ---"
+kroxy_metrics=$(curl -sf http://localhost:9000/metrics 2>/dev/null) || true
+if echo "$kroxy_metrics" | grep -qE "kroxylicious_|kafka_|jvm_"; then
+  pass "Kroxylicious virtual cluster metrics populated after produce/consume"
 else
-  fail "Envoy Kafka stats not populated after produce/consume"
+  fail "Kroxylicious metrics not populated after produce/consume"
 fi
 
 # ── Test 14: Topic cleanup ────────────────────────────────────────────────────

@@ -1,0 +1,106 @@
+---
+- name: Ensure Java 21 (Temurin) is installed
+  block:
+    - name: Add Adoptium APT key
+      apt_key:
+        url: https://packages.adoptium.net/artifactory/api/gpg/key/public
+        state: present
+
+    - name: Add Adoptium APT repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://packages.adoptium.net/artifactory/deb {{ ansible_distribution_release }} main"
+        state: present
+        filename: adoptium
+
+    - name: Install Temurin 21 JRE
+      apt:
+        name: temurin-21-jre
+        state: present
+        update_cache: yes
+
+- name: Create Kroxylicious system user
+  user:
+    name: "{{ kroxylicious_user }}"
+    system: yes
+    shell: /usr/sbin/nologin
+    home: "{{ kroxylicious_home }}"
+    create_home: no
+
+- name: Create Kroxylicious directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ kroxylicious_user }}"
+    group: "{{ kroxylicious_group }}"
+    mode: "0750"
+  loop:
+    - "{{ kroxylicious_home }}"
+    - "{{ kroxylicious_config_dir }}"
+    - "{{ kroxylicious_tls_dir }}"
+    - "{{ kroxylicious_log_dir }}"
+
+- name: Download Kroxylicious tarball
+  get_url:
+    url: "https://github.com/kroxylicious/kroxylicious/releases/download/v{{ kroxylicious_version }}/kroxylicious-{{ kroxylicious_version }}-bin.tar.gz"
+    dest: "/tmp/kroxylicious-{{ kroxylicious_version }}-bin.tar.gz"
+    mode: "0644"
+
+- name: Extract Kroxylicious tarball
+  unarchive:
+    src: "/tmp/kroxylicious-{{ kroxylicious_version }}-bin.tar.gz"
+    dest: "{{ kroxylicious_home }}"
+    remote_src: yes
+    extra_opts: ["--strip-components=1"]
+    owner: "{{ kroxylicious_user }}"
+    group: "{{ kroxylicious_group }}"
+  notify: restart kroxylicious
+
+- name: Deploy PKCS12 keystores
+  copy:
+    src: "/etc/kafka-pki/{{ item.src }}"
+    dest: "{{ kroxylicious_tls_dir }}/{{ item.dest }}"
+    remote_src: yes
+    owner: "{{ kroxylicious_user }}"
+    group: "{{ kroxylicious_group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: server.p12, dest: server.p12, mode: "0640" }
+    - { src: ca.p12,     dest: ca.p12,     mode: "0640" }
+  notify: restart kroxylicious
+
+- name: Deploy Kroxylicious configuration
+  template:
+    src: kroxylicious.yaml.j2
+    dest: "{{ kroxylicious_config_dir }}/kroxylicious.yaml"
+    owner: "{{ kroxylicious_user }}"
+    group: "{{ kroxylicious_group }}"
+    mode: "0640"
+  notify: restart kroxylicious
+
+- name: Deploy Kroxylicious systemd service
+  template:
+    src: kroxylicious.service.j2
+    dest: /etc/systemd/system/kroxylicious.service
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart kroxylicious
+
+- name: Enable and start Kroxylicious
+  systemd:
+    name: kroxylicious
+    enabled: yes
+    state: started
+    daemon_reload: yes
+
+- name: Open Kroxylicious firewall ports (UFW)
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "{{ kroxylicious_bootstrap_port }}"
+    - "{{ kroxylicious_broker_start_port }}"
+    - "{{ kroxylicious_broker_start_port | int + 1 }}"
+    - "{{ kroxylicious_broker_start_port | int + 2 }}"
+  when: ansible_facts.packages['ufw'] is defined or ansible_facts['pkg_mgr'] == 'apt'

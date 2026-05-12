@@ -1,26 +1,24 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# ACTIVE DEPLOYMENT — Kroxylicious-based (Kafka protocol-aware proxy)
-# Envoy reference deployment: docker compose -f docker-compose-envoy.yml up -d
+# REFERENCE DEPLOYMENT — Envoy-based (kept for documentation purposes)
+# Active deployment uses docker-compose.yml (Kroxylicious-based).
+# To run this stack: docker compose -f docker-compose-envoy.yml up -d
 # ─────────────────────────────────────────────────────────────────────────────
 # Architecture:
-#   3 Kafka KRaft brokers  – INTERNAL PLAINTEXT on :9092 only (Kroxylicious connects directly)
-#   1 Kroxylicious proxy   – terminates mTLS on :9292-9295, rewrites MetadataResponse
+#   3 Kafka KRaft brokers  – internal PLAINTEXT on :9092, EXTERNAL PLAINTEXT on :9094
+#   1 Envoy proxy          – terminates mTLS on :19092-19094, forwards plaintext to each broker's :9094
 #   1 kafka-exporter       – Kafka protocol metrics for Prometheus (plaintext via internal network)
-#   1 Prometheus           – scrapes Kroxylicious /metrics + kafka-exporter
+#   1 Prometheus           – scrapes Envoy /stats/prometheus + kafka-exporter
 #   1 Grafana              – dashboards over Prometheus datasource
 #
 # Component versions (all latest stable, all open-source):
-#   apache/kafka                    3.9.0   Apache-2.0
-#   quay.io/kroxylicious/kroxylicious 0.9.0 Apache-2.0
-#   danielqsj/kafka-exporter        v1.9.0  Apache-2.0
-#   prom/prometheus                 v3.2.1  Apache-2.0
-#   grafana/grafana                 11.5.0  AGPL-3.0
+#   apache/kafka               3.9.0   Apache-2.0
+#   envoyproxy/envoy-contrib   v1.33   Apache-2.0
+#   danielqsj/kafka-exporter   v1.9.0  Apache-2.0
+#   prom/prometheus            v3.2.1  Apache-2.0
+#   grafana/grafana            11.5.0  AGPL-3.0
 
 services:
   # ─── Kafka KRaft Cluster ────────────────────────────────────────────────────
-  # Brokers expose only INTERNAL listener — Kroxylicious connects directly to :9092.
-  # No EXTERNAL listener needed; Kroxylicious rewrites MetadataResponse so clients
-  # always reconnect through Kroxylicious per-broker ports (9293/9294/9295).
 
   kafka1:
     image: apache/kafka:3.9.0
@@ -31,9 +29,9 @@ services:
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:9093,2@kafka2:9093,3@kafka3:9093
       # Kafka 3.9 StorageTool rejects 0.0.0.0 in CONTROLLER – use hostname (routable)
-      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,CONTROLLER://kafka1:9093
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka1:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://kafka1:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka1:9092,EXTERNAL://envoy:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
@@ -62,9 +60,9 @@ services:
       KAFKA_NODE_ID: 2
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:9093,2@kafka2:9093,3@kafka3:9093
-      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,CONTROLLER://kafka2:9093
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka2:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://kafka2:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka2:9092,EXTERNAL://envoy:19093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
@@ -93,9 +91,9 @@ services:
       KAFKA_NODE_ID: 3
       KAFKA_PROCESS_ROLES: broker,controller
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka1:9093,2@kafka2:9093,3@kafka3:9093
-      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,CONTROLLER://kafka3:9093
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka3:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL://0.0.0.0:9094,CONTROLLER://kafka3:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka3:9092,EXTERNAL://envoy:19094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
@@ -116,25 +114,20 @@ services:
       retries: 12
       start_period: 40s
 
-  # ─── Kroxylicious Kafka Protocol-Aware Proxy ─────────────────────────────────
-  # Intercepts Kafka protocol traffic, terminates mTLS, rewrites MetadataResponse
-  # so clients transparently reconnect through per-broker ports.
-  # Admin HTTP at :9000 exposes /metrics (Prometheus) and /healthz.
+  # ─── Envoy mTLS Proxy ───────────────────────────────────────────────────────
 
-  kroxylicious:
-    image: quay.io/kroxylicious/kroxylicious:0.9.0
-    hostname: kroxylicious
-    container_name: kroxylicious
+  envoy:
+    image: envoyproxy/envoy-contrib:v1.33-latest
+    hostname: envoy
+    container_name: envoy
     ports:
-      - "9292:9292"   # Bootstrap – initial client connect
-      - "9293:9293"   # Broker 1 – per-broker mTLS client entry
-      - "9294:9294"   # Broker 2 – per-broker mTLS client entry
-      - "9295:9295"   # Broker 3 – per-broker mTLS client entry
-      - "9000:9000"   # Admin HTTP – /metrics (Prometheus) + /healthz
+      - "19092:19092"   # Broker 1 – mTLS client entry
+      - "19093:19093"   # Broker 2 – mTLS client entry
+      - "19094:19094"   # Broker 3 – mTLS client entry
+      - "9901:9901"     # Envoy admin API + Prometheus /stats/prometheus
     volumes:
-      - ./config/kroxylicious/kroxylicious.yaml:/opt/kroxylicious/config/config.yaml:ro
-      - ./certs:/certs:ro
-    command: ["--config", "/opt/kroxylicious/config/config.yaml"]
+      - ./config/envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+      - ./certs:/etc/envoy/tls:ro
     depends_on:
       kafka1:
         condition: service_healthy
@@ -144,13 +137,19 @@ services:
         condition: service_healthy
     networks:
       - kafka-net
+    command:
+      - /usr/local/bin/envoy
+      - -c
+      - /etc/envoy/envoy.yaml
+      - --log-level
+      - info
     healthcheck:
-      # Admin /healthz returns 200 when all virtual clusters are connected
-      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/healthz 2>/dev/null | grep -q 'ok\\|UP\\|healthy' || wget -q --spider http://localhost:9000/healthz 2>/dev/null"]
+      # envoy-contrib has no curl/wget; bash /dev/tcp TCP open = admin port ready
+      test: ["CMD", "bash", "-c", "echo > /dev/tcp/127.0.0.1/9901"]
       interval: 10s
       timeout: 5s
-      retries: 12
-      start_period: 30s
+      retries: 6
+      start_period: 15s
 
   # ─── Kafka Metrics Exporter ─────────────────────────────────────────────────
 
@@ -191,7 +190,7 @@ services:
       - --storage.tsdb.path=/prometheus
       - --web.enable-lifecycle
     depends_on:
-      kroxylicious:
+      envoy:
         condition: service_healthy
       kafka-exporter:
         condition: service_started

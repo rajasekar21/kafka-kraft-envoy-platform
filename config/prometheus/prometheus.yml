@@ -4,16 +4,23 @@ global:
 
 scrape_configs:
 
-  # Envoy admin API exposes all stats in Prometheus format at /stats/prometheus.
-  # Includes per-listener downstream connections, per-cluster upstream connections,
-  # and kafka_broker filter request/response counters.
-  - job_name: envoy
+  # Kroxylicious admin server exposes Prometheus metrics at /metrics.
+  # Includes per-virtual-cluster connection counts, Kafka protocol request/response
+  # counters, and JVM metrics.
+  - job_name: kroxylicious
     static_configs:
-      - targets: ['envoy:9901']
-    metrics_path: /stats/prometheus
+      - targets: ['kroxylicious:9000']
+    metrics_path: /metrics
 
   # kafka-exporter speaks the Kafka protocol to the brokers directly over the
   # internal plaintext network and surfaces broker/topic/consumer-group metrics.
   - job_name: kafka
     static_configs:
       - targets: ['kafka-exporter:9308']
+
+  # Envoy admin — retained as reference scrape target (disabled by default).
+  # Uncomment if running the Envoy-based deployment (docker-compose-envoy.yml).
+  # - job_name: envoy
+  #   static_configs:
+  #     - targets: ['envoy:9901']
+  #   metrics_path: /stats/prometheus

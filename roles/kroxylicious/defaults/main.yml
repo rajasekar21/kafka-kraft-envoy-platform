@@ -1,0 +1,21 @@
+---
+kroxylicious_version: "0.9.0"
+kroxylicious_user: kroxylicious
+kroxylicious_group: kroxylicious
+kroxylicious_home: /opt/kroxylicious
+kroxylicious_config_dir: /etc/kroxylicious
+kroxylicious_log_dir: /var/log/kroxylicious
+
+# Ports
+kroxylicious_bootstrap_port: 9292
+kroxylicious_broker_start_port: 9293
+kroxylicious_broker_count: 3
+kroxylicious_admin_port: 9000
+
+# TLS
+tls_dir: /etc/kafka-pki
+kroxylicious_tls_dir: /etc/kroxylicious/tls
+pkcs12_password: "changeit"
+
+# Virtual cluster
+kroxylicious_virtual_cluster_name: bank-kafka-cluster

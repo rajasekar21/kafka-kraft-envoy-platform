@@ -6,8 +6,16 @@
   roles:
     - kafka_kraft
 
-- hosts: envoy
+# Active proxy: Kroxylicious (Kafka protocol-aware, mTLS termination)
+- hosts: kroxylicious
   roles:
     - pki
-    - envoy
+    - kroxylicious
     - keepalived
+
+# Reference proxy: Envoy (kept for documentation — uncomment to deploy instead)
+# - hosts: envoy
+#   roles:
+#     - pki
+#     - envoy
+#     - keepalived

@@ -1,0 +1,24 @@
+[Unit]
+Description=Kroxylicious Kafka Protocol-Aware Proxy
+Documentation=https://kroxylicious.io/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ kroxylicious_user }}
+Group={{ kroxylicious_group }}
+WorkingDirectory={{ kroxylicious_home }}
+ExecStart={{ kroxylicious_home }}/bin/kroxylicious-start.sh --config {{ kroxylicious_config_dir }}/kroxylicious.yaml
+StandardOutput=append:{{ kroxylicious_log_dir }}/kroxylicious.log
+StandardError=append:{{ kroxylicious_log_dir }}/kroxylicious.log
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths={{ kroxylicious_log_dir }}
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
