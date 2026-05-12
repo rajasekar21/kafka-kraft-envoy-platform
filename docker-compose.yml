@@ -152,6 +152,38 @@ services:
       retries: 12
       start_period: 30s
 
+  # ─── Kafka UI ───────────────────────────────────────────────────────────────
+  # Apache-2.0 — browser-based Kafka topology view: brokers, topics, consumer
+  # group lag, partition leaders, produce/consume playground. No extra metrics
+  # pipeline — queries Kafka directly via the admin API over the internal network.
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"   # Web UI
+    environment:
+      KAFKA_CLUSTERS_0_NAME: bank-kafka-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka1:9092,kafka2:9092,kafka3:9092
+      KAFKA_CLUSTERS_0_READONLY: "false"
+      DYNAMIC_CONFIG_ENABLED: "true"
+      AUTH_TYPE: "DISABLED"
+    depends_on:
+      kafka1:
+        condition: service_healthy
+      kafka2:
+        condition: service_healthy
+      kafka3:
+        condition: service_healthy
+    networks:
+      - kafka-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
   # ─── Kafka Metrics Exporter ─────────────────────────────────────────────────
 
   kafka-exporter:

@@ -135,6 +135,7 @@ jobs:
           echo "=== kafka2 logs        ===" && docker logs kafka2        --tail 100 || true
           echo "=== kafka3 logs        ===" && docker logs kafka3        --tail 100 || true
           echo "=== kroxylicious logs  ===" && docker logs kroxylicious  --tail 100 || true
+          echo "=== kafka-ui logs      ===" && docker logs kafka-ui       --tail 50  || true
           echo "=== prometheus         ===" && docker logs prometheus    --tail 50  || true
           echo "=== grafana            ===" && docker logs grafana        --tail 50  || true
           echo "=== Kroxylicious metrics ===" && curl -sf http://localhost:9000/metrics || true
