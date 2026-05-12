@@ -1,0 +1,26 @@
+[Unit]
+Description=Kafka UI — Kafka Topology Browser
+Documentation=https://github.com/provectus/kafka-ui
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ kafka_ui_user }}
+WorkingDirectory={{ kafka_ui_home }}
+Environment=JAVA_OPTS="-Xmx512m"
+Environment=KAFKA_CLUSTERS_0_NAME=bank-kafka-cluster
+Environment=KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS={% for host in groups['kafka'] %}{{ hostvars[host]['ansible_host'] }}:9092{% if not loop.last %},{% endif %}{% endfor %}
+
+Environment=KAFKA_CLUSTERS_0_READONLY=false
+Environment=DYNAMIC_CONFIG_ENABLED=true
+Environment=AUTH_TYPE=DISABLED
+Environment=SERVER_PORT={{ kafka_ui_port }}
+ExecStart=/usr/bin/java ${JAVA_OPTS} -jar {{ kafka_ui_home }}/kafka-ui.jar
+StandardOutput=append:{{ kafka_ui_log_dir }}/kafka-ui.log
+StandardError=append:{{ kafka_ui_log_dir }}/kafka-ui.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

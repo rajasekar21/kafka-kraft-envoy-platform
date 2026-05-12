@@ -1,0 +1,4 @@
+---
+kafka_exporter_version: "1.9.0"
+kafka_exporter_user: kafka-exporter
+kafka_exporter_port: 9308

@@ -1,0 +1,19 @@
+[Unit]
+Description=Kafka Exporter for Prometheus
+Documentation=https://github.com/danielqsj/kafka_exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ kafka_exporter_user }}
+ExecStart=/usr/local/bin/kafka_exporter \
+{% for host in groups['kafka'] %}
+  --kafka.server={{ hostvars[host]['ansible_host'] }}:9092 \
+{% endfor %}
+  --web.listen-address=:{{ kafka_exporter_port }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

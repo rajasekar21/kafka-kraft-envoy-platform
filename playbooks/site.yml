@@ -13,6 +13,22 @@
     - kroxylicious
     - keepalived
 
+# Kafka metrics exporter (co-located with monitoring node or standalone)
+- hosts: kafka_exporter
+  roles:
+    - kafka_exporter
+
+# Monitoring stack
+- hosts: monitoring
+  roles:
+    - prometheus
+    - grafana
+
+# Kafka UI (broker/topic/consumer-group browser — no credentials required)
+- hosts: kafka_ui
+  roles:
+    - kafka_ui
+
 # Reference proxy: Envoy (kept for documentation — uncomment to deploy instead)
 # - hosts: envoy
 #   roles:

@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# One-command local deployment: generates certs, brings up Docker Compose stack,
+# ─────────────────────────────────────────────────────────────────────────────
+# DOCKER QUICKSTART ONLY — requires Docker + docker compose v2
+# For production bare-metal deployment use: bash scripts/deploy-baremetal.sh
+# ─────────────────────────────────────────────────────────────────────────────
+# One-command Docker Compose deployment: generates certs, brings up the stack,
 # waits for readiness, then optionally runs the smoke test suite.
 set -euo pipefail
 

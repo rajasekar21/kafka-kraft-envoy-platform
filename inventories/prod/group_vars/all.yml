@@ -13,5 +13,24 @@ kroxylicious_broker_start_port: 9293
 kroxylicious_broker_count: 3
 kroxylicious_admin_port: 9000
 
+# Prometheus
+prometheus_version: "3.2.1"
+prometheus_port: 9090
+prometheus_retention: 15d
+
+# Grafana
+grafana_version: "11.5.0"
+grafana_admin_user: admin
+grafana_admin_password: "kafka123"
+grafana_port: 3000
+
+# kafka-exporter
+kafka_exporter_version: "1.9.0"
+kafka_exporter_port: 9308
+
+# Kafka UI
+kafka_ui_version: "0.7.2"
+kafka_ui_port: 8080
+
 # Keepalived VIP — shared across proxy layer (Kroxylicious HA)
 # vip and domain are defined in hosts.ini [all:vars]
