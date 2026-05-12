@@ -1,15 +1,32 @@
 # Kafka KRaft + Kroxylicious Platform
 
-### Secure Kafka Ingress (mTLS + HA + Monitoring) — Bare Metal (Ubuntu 22/24)
+### Production-Grade Kafka Ingress — Kafka Protocol-Aware Proxy · mTLS · HA · Full Observability · Bare Metal (Ubuntu 22/24)
 
 ![Platform](https://img.shields.io/badge/Platform-Kafka%20KRaft%203.9.0-blue)
 ![Proxy](https://img.shields.io/badge/Proxy-Kroxylicious%200.9.0-green)
-![Security](https://img.shields.io/badge/Security-mTLS-critical)
+![Security](https://img.shields.io/badge/Security-mTLS%20%7C%20Client%20Cert%20Required-critical)
+![HA](https://img.shields.io/badge/HA-Keepalived%20VIP%20%3C2s%20Failover-orange)
+![Deployment](https://img.shields.io/badge/Deployment-Bare%20Metal%20%7C%20Ansible%20%7C%20No%20Docker-important)
 ![Monitoring](https://img.shields.io/badge/Monitoring-Prometheus%20%2B%20Grafana%20%2B%20Kafka%20UI-orange)
-![HA](https://img.shields.io/badge/HA-Keepalived-orange)
-![Deployment](https://img.shields.io/badge/Deployment-BareMetal%20%7C%20Ansible-important)
-![CI](https://img.shields.io/badge/CI-GitHub%20Actions-lightgrey)
+![CI](https://img.shields.io/badge/CI-GitHub%20Actions%20%7C%20Bare--Metal%20Install-lightgrey)
 ![License](https://img.shields.io/badge/License-Apache%202.0%20%2F%20AGPL--3.0-informational)
+
+---
+
+## Platform at a Glance
+
+| Category | Detail |
+|---|---|
+| **Kafka Cluster** | Apache Kafka **3.9.0** · KRaft mode (no ZooKeeper) · 3 brokers · RF=3 · combined broker+controller |
+| **Proxy / Ingress** | **Kroxylicious 0.9.0** · Kafka protocol-aware · mTLS termination · `MetadataResponse` rewrite · port-per-broker routing |
+| **Security** | Mutual TLS (mTLS) · client certificate required · self-signed CA · PKCS12 keystores · zero plaintext on external network |
+| **High Availability** | **Keepalived** VRRP · 2-node Kroxylicious HA pair · shared VIP · health-check driven failover **< 2 seconds** |
+| **Deployment** | **Bare metal** (Ubuntu 22.04 / 24.04) · **Ansible** automated · no Docker in production · 7 Ansible roles |
+| **Monitoring** | Prometheus **3.2.1** · Grafana **11.5.0** (auto-provisioned dashboards) · kafka-exporter · Kafka UI |
+| **Clients** | Bootstrap `:9292` (VIP) · per-broker `:9293 / :9294 / :9295` · standard Kafka client with SSL properties |
+| **Reference Proxy** | Envoy v1.33 config kept in repo (`docker-compose-envoy.yml`, `roles/envoy/`) — not active in production |
+| **Local Dev** | Docker Compose quickstart (`docker compose up -d`) — optional, not required |
+| **CI** | GitHub Actions · bare-metal package install on runner · 14-test mTLS smoke suite · no Docker Compose |
 
 ---
 
