@@ -1,0 +1,9 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: "http://{% for host in groups['monitoring'] %}{{ hostvars[host]['ansible_host'] }}{% if not loop.last %},{% endif %}{% endfor %}:{{ prometheus_port | default(9090) }}"
+    isDefault: true
+    editable: false

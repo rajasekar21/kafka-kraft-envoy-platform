@@ -1,0 +1,65 @@
+# Kroxylicious 0.9.0 — Kafka Protocol-Aware Proxy
+# ─────────────────────────────────────────────────────────────────────────────
+# Role     : Bank-side ingress, mTLS termination, Kafka-aware virtual cluster
+# Replaces : Envoy in active deployment (Envoy config kept in config/envoy/ for reference)
+#
+# Virtual cluster topology:
+#   Bootstrap : kroxylicious:9292
+#   Broker 1  : kroxylicious:9293  →  kafka1:9092
+#   Broker 2  : kroxylicious:9294  →  kafka2:9092
+#   Broker 3  : kroxylicious:9295  →  kafka3:9092
+#
+# mTLS:
+#   Server cert  : certs/server.p12   (PKCS12 — run scripts/generate-certs.sh)
+#   CA truststore: certs/ca.p12       (PKCS12 — client cert required)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Admin HTTP server — exposes /metrics (Prometheus), /healthz
+adminHttp:
+  host: 0.0.0.0
+  port: 9000
+  endpoints:
+    prometheus: {}
+
+virtualClusters:
+  bank-kafka-cluster:
+
+    # ── Upstream: real Kafka cluster (internal PLAINTEXT) ───────────────────
+    targetCluster:
+      bootstrap_servers: "kafka1:9092,kafka2:9092,kafka3:9092"
+
+    # ── Port-per-broker mapping ──────────────────────────────────────────────
+    # Kroxylicious intercepts Kafka MetadataResponse and rewrites broker
+    # addresses so clients always reconnect through Kroxylicious, not Kafka.
+    #
+    # brokerAddressPattern uses ${nodeId} substitution at runtime.
+    # In Docker: advertised host = 'kroxylicious'.
+    # In bare-metal: set to the FQDN/VIP of the Kroxylicious ingress node.
+    clusterNetworkAddressConfigProvider:
+      type: PortPerBrokerClusterNetworkAddressConfigProvider
+      config:
+        bootstrapAddress: "kroxylicious:9292"
+        brokerAddressPattern: "kroxylicious"
+        brokerStartPort: 9293
+        numberOfBrokerPorts: 3
+
+    # ── mTLS: client certificate required ───────────────────────────────────
+    tls:
+      # Server identity — presented to bank-side clients
+      key:
+        storeFile: /certs/server.p12
+        storePassword:
+          password: changeit
+        storeType: PKCS12
+      # Client trust — CA that signed bank client certificates
+      trust:
+        storeFile: /certs/ca.p12
+        storeType: PKCS12
+        trustOptions:
+          clientAuth: REQUIRED
+
+    # ── Protocol filters ─────────────────────────────────────────────────────
+    # ApiVersions filter: normalises API version negotiation between client
+    # and broker so Kroxylicious can safely intercept all protocol traffic.
+    filters:
+      - type: ApiVersions

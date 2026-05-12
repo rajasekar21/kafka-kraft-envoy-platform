@@ -1,0 +1,39 @@
+# Kroxylicious {{ kroxylicious_version }} — managed by Ansible
+# Virtual cluster: {{ kroxylicious_virtual_cluster_name }}
+# Bootstrap : {{ ansible_fqdn }}:{{ kroxylicious_bootstrap_port }}
+# Brokers   : {{ ansible_fqdn }}:{{ kroxylicious_broker_start_port }}–{{ kroxylicious_broker_start_port | int + kroxylicious_broker_count | int - 1 }}
+
+adminHttp:
+  host: 0.0.0.0
+  port: {{ kroxylicious_admin_port }}
+  endpoints:
+    prometheus: {}
+
+virtualClusters:
+  {{ kroxylicious_virtual_cluster_name }}:
+
+    targetCluster:
+      bootstrap_servers: "{% for host in groups['kafka'] %}{{ hostvars[host]['ansible_host'] }}:9092{% if not loop.last %},{% endif %}{% endfor %}"
+
+    clusterNetworkAddressConfigProvider:
+      type: PortPerBrokerClusterNetworkAddressConfigProvider
+      config:
+        bootstrapAddress: "{{ vip | default(ansible_fqdn) }}:{{ kroxylicious_bootstrap_port }}"
+        brokerAddressPattern: "{{ vip | default(ansible_fqdn) }}"
+        brokerStartPort: {{ kroxylicious_broker_start_port }}
+        numberOfBrokerPorts: {{ kroxylicious_broker_count }}
+
+    tls:
+      key:
+        storeFile: {{ kroxylicious_tls_dir }}/server.p12
+        storePassword:
+          password: {{ pkcs12_password }}
+        storeType: PKCS12
+      trust:
+        storeFile: {{ kroxylicious_tls_dir }}/ca.p12
+        storeType: PKCS12
+        trustOptions:
+          clientAuth: REQUIRED
+
+    filters:
+      - type: ApiVersions

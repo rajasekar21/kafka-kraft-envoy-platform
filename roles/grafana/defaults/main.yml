@@ -1,0 +1,8 @@
+---
+grafana_version: "11.5.0"
+grafana_admin_user: admin
+grafana_admin_password: kafka123
+grafana_port: 3000
+grafana_data_dir: /var/lib/grafana
+grafana_log_dir: /var/log/grafana
+grafana_dashboards_dir: /var/lib/grafana/dashboards

@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# One-command local deployment: generates certs, brings up Docker Compose stack,
+# ─────────────────────────────────────────────────────────────────────────────
+# DOCKER QUICKSTART ONLY — requires Docker + docker compose v2
+# For production bare-metal deployment use: bash scripts/deploy-baremetal.sh
+# ─────────────────────────────────────────────────────────────────────────────
+# One-command Docker Compose deployment: generates certs, brings up the stack,
 # waits for readiness, then optionally runs the smoke test suite.
 set -euo pipefail
 
@@ -58,7 +62,7 @@ log "Generating TLS certificates..."
 bash "$REPO_ROOT/scripts/generate-certs.sh"
 
 # ── Docker Compose up ─────────────────────────────────────────────────────────
-log "Starting Kafka KRaft + Envoy stack..."
+log "Starting Kafka KRaft + Kroxylicious stack..."
 docker compose up -d --remove-orphans
 
 # ── Wait for Kafka brokers ────────────────────────────────────────────────────
@@ -80,14 +84,14 @@ for broker in kafka1 kafka2 kafka3; do
   echo " healthy"
 done
 
-# ── Wait for Envoy ────────────────────────────────────────────────────────────
-log "Waiting for Envoy proxy..."
-timeout=60
+# ── Wait for Kroxylicious ─────────────────────────────────────────────────────
+log "Waiting for Kroxylicious proxy..."
+timeout=90
 elapsed=0
-until curl -sf http://localhost:9901/ready 2>/dev/null | grep -q LIVE; do
+until curl -sf -o /dev/null http://localhost:9000/healthz 2>/dev/null; do
   if [[ "$elapsed" -ge "$timeout" ]]; then
-    echo "ERROR: Envoy did not become ready within ${timeout}s"
-    docker logs envoy --tail 30
+    echo "ERROR: Kroxylicious did not become ready within ${timeout}s"
+    docker logs kroxylicious --tail 30
     exit 1
   fi
   sleep 3
@@ -100,14 +104,16 @@ log ""
 log "═══════════════════════════════════════════════════════════"
 log " Deployment complete!"
 log ""
-log " Envoy mTLS endpoints (Kafka bootstrap):"
-log "   localhost:19092  →  kafka1:9094"
-log "   localhost:19093  →  kafka2:9094"
-log "   localhost:19094  →  kafka3:9094"
+log " Kroxylicious mTLS endpoints:"
+log "   Bootstrap:  localhost:9292"
+log "   Broker 1:   localhost:9293  →  kafka1:9092"
+log "   Broker 2:   localhost:9294  →  kafka2:9092"
+log "   Broker 3:   localhost:9295  →  kafka3:9092"
 log ""
-log " Envoy admin:  http://localhost:9901"
-log " Prometheus:   http://localhost:9090"
-log " Grafana:      http://localhost:3000  (admin / kafka123)"
+log " Kroxylicious admin:  http://localhost:9000/metrics"
+log " Kafka UI:            http://localhost:8080"
+log " Prometheus:          http://localhost:9090"
+log " Grafana:             http://localhost:3000  (admin / kafka123)"
 log ""
 log " TLS certificates:  ./certs/"
 log "   ca.crt        – CA trust anchor"

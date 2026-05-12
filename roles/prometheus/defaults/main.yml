@@ -1,0 +1,9 @@
+---
+prometheus_version: "3.2.1"
+prometheus_user: prometheus
+prometheus_group: prometheus
+prometheus_home: /opt/prometheus
+prometheus_config_dir: /etc/prometheus
+prometheus_data_dir: /var/lib/prometheus
+prometheus_port: 9090
+prometheus_retention: 15d

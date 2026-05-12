@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+
+  - job_name: kroxylicious
+    static_configs:
+      - targets:
+{% for host in groups['kroxylicious'] %}
+          - '{{ hostvars[host]['ansible_host'] }}:{{ kroxylicious_admin_port | default(9000) }}'
+{% endfor %}
+    metrics_path: /metrics
+
+  - job_name: kafka
+    static_configs:
+      - targets:
+{% for host in groups['kafka_exporter'] | default([]) %}
+          - '{{ hostvars[host]['ansible_host'] }}:{{ kafka_exporter_port | default(9308) }}'
+{% endfor %}
+
+  # Uncomment to scrape Envoy (reference deployment only)
+  # - job_name: envoy
+  #   static_configs:
+  #     - targets: ['<envoy-ip>:9901']
+  #   metrics_path: /stats/prometheus

@@ -1,11 +1,12 @@
-name: CI – Lint, Deploy & Smoke Test
+name: CI – Lint & Bare-Metal Smoke Test
 
-# Component versions in use (all open-source):
-#   apache/kafka               3.9.0   Apache-2.0
-#   envoyproxy/envoy-contrib   v1.33   Apache-2.0
-#   danielqsj/kafka-exporter   v1.9.0  Apache-2.0
-#   prom/prometheus            v3.2.1  Apache-2.0
-#   grafana/grafana            11.5.0  AGPL-3.0
+# Component versions (all open-source, bare-metal package install):
+#   apache/kafka                      3.9.0   Apache-2.0
+#   quay.io/kroxylicious/kroxylicious  0.9.0   Apache-2.0
+#   danielqsj/kafka-exporter          v1.9.0  Apache-2.0
+#   prom/prometheus                   v3.2.1  Apache-2.0
+#   grafana/grafana                   11.5.0  AGPL-3.0
+#   provectus/kafka-ui                0.7.2   Apache-2.0
 
 on:
   push:
@@ -22,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install ansible-lint
+      - name: Install ansible-lint and yamllint
         run: pip install ansible-lint yamllint
 
       - name: Lint Ansible playbooks and roles
@@ -31,8 +32,7 @@ jobs:
       - name: Validate YAML files
         run: |
           yamllint -d relaxed \
-            docker-compose.yml \
-            config/envoy/envoy.yaml \
+            config/kroxylicious/kroxylicious.yaml \
             config/prometheus/prometheus.yml \
             config/grafana/provisioning/datasources/prometheus.yml \
             config/grafana/provisioning/dashboards/dashboard.yml \
@@ -40,105 +40,174 @@ jobs:
             inventories/prod/group_vars/all.yml
 
       - name: Lint shell scripts
-        run: |
-          find scripts/ -name "*.sh" -exec bash -n {} \; -print
+        run: find scripts/ -name "*.sh" -exec bash -n {} \; -print
 
-  # ── Deploy & Smoke Test ───────────────────────────────────────────────────
+  # ── Bare-Metal Smoke Test ─────────────────────────────────────────────────
+  # Installs Kafka KRaft and Kroxylicious directly on the runner (no Docker).
+  # Tests the full mTLS produce/consume path via Kroxylicious.
   smoke-test:
-    name: Deploy + Smoke Test
+    name: Bare-Metal Smoke Test
     runs-on: ubuntu-latest
     needs: lint
     timeout-minutes: 20
 
+    env:
+      KAFKA_VERSION: "3.9.0"
+      KAFKA_SCALA: "2.13"
+      KROXY_VERSION: "0.9.0"
+      KAFKA_HOME: /opt/kafka
+      BOOTSTRAP: "localhost:9292"
+      KROXY_ADMIN_HOST: localhost
+      CERTS_DIR: ${{ github.workspace }}/certs
+
     steps:
       - uses: actions/checkout@v4
+
+      # ── Java 21 ───────────────────────────────────────────────────────────
+      - name: Install Java 21 (Temurin)
+        run: |
+          wget -qO - https://packages.adoptium.net/artifactory/api/gpg/key/public \
+            | sudo apt-key add -
+          echo "deb https://packages.adoptium.net/artifactory/deb $(lsb_release -cs) main" \
+            | sudo tee /etc/apt/sources.list.d/adoptium.list
+          sudo apt-get update -q
+          sudo apt-get install -y temurin-21-jre
+
+      # ── Kafka KRaft ───────────────────────────────────────────────────────
+      - name: Install Apache Kafka ${{ env.KAFKA_VERSION }}
+        run: |
+          wget -qO /tmp/kafka.tgz \
+            "https://downloads.apache.org/kafka/${KAFKA_VERSION}/kafka_${KAFKA_SCALA}-${KAFKA_VERSION}.tgz"
+          sudo mkdir -p /opt/kafka
+          sudo tar -xzf /tmp/kafka.tgz --strip-components=1 -C /opt/kafka
+          sudo useradd --system --no-create-home --shell /usr/sbin/nologin kafka || true
+          sudo mkdir -p /var/kafka/data /var/log/kafka
+          sudo chown -R kafka:kafka /opt/kafka /var/kafka/data /var/log/kafka
 
       - name: Generate TLS certificates
         run: bash scripts/generate-certs.sh
 
-      - name: Start Docker Compose stack
-        run: docker compose up -d
-
-      - name: Wait for Kafka brokers to be healthy
+      - name: Format KRaft storage and start 3-broker cluster
         run: |
-          for broker in kafka1 kafka2 kafka3; do
-            echo "Waiting for $broker..."
-            for i in $(seq 1 36); do
-              status=$(docker inspect -f '{{.State.Health.Status}}' $broker 2>/dev/null || echo "unknown")
-              if [ "$status" = "healthy" ]; then
-                echo "$broker is healthy"
+          CLUSTER_ID=$(sudo -u kafka /opt/kafka/bin/kafka-storage.sh random-uuid)
+
+          for node in 1 2 3; do
+            sudo mkdir -p /var/kafka/data-node${node}
+            sudo chown kafka /var/kafka/data-node${node}
+
+            cat > /tmp/kraft-${node}.properties <<EOF
+          node.id=${node}
+          process.roles=broker,controller
+          controller.quorum.voters=1@localhost:9191,2@localhost:9192,3@localhost:9193
+          listeners=INTERNAL://localhost:909${node},CONTROLLER://localhost:919${node}
+          advertised.listeners=INTERNAL://localhost:909${node}
+          listener.security.protocol.map=INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+          inter.broker.listener.name=INTERNAL
+          controller.listener.names=CONTROLLER
+          log.dirs=/var/kafka/data-node${node}
+          num.partitions=3
+          default.replication.factor=3
+          offsets.topic.replication.factor=3
+          transaction.state.log.replication.factor=3
+          transaction.state.log.min.isr=2
+          min.insync.replicas=2
+          EOF
+
+            sudo -u kafka /opt/kafka/bin/kafka-storage.sh format \
+              -t "$CLUSTER_ID" -c /tmp/kraft-${node}.properties
+
+            sudo -u kafka /opt/kafka/bin/kafka-server-start.sh \
+              /tmp/kraft-${node}.properties \
+              > /var/log/kafka/broker-${node}.log 2>&1 &
+          done
+
+          echo "Waiting for brokers to start..."
+          sleep 20
+          for node in 1 2 3; do
+            for i in $(seq 1 24); do
+              if /opt/kafka/bin/kafka-broker-api-versions.sh \
+                --bootstrap-server "localhost:909${node}" > /dev/null 2>&1; then
+                echo "Broker $node ready"
                 break
               fi
-              if [ "$i" -eq 36 ]; then
-                echo "$broker did not become healthy in time"
-                docker logs $broker --tail 50
-                exit 1
-              fi
+              [ "$i" -eq 24 ] && { echo "Broker $node timeout"; cat /var/log/kafka/broker-${node}.log; exit 1; }
               sleep 5
             done
           done
 
-      - name: Wait for Envoy to be ready
+      # ── Kroxylicious ──────────────────────────────────────────────────────
+      - name: Install Kroxylicious ${{ env.KROXY_VERSION }}
         run: |
-          for i in $(seq 1 20); do
-            if curl -sf http://localhost:9901/ready 2>/dev/null | grep -q LIVE; then
-              echo "Envoy is ready"
+          wget -qO /tmp/kroxy.tar.gz \
+            "https://github.com/kroxylicious/kroxylicious/releases/download/v${KROXY_VERSION}/kroxylicious-${KROXY_VERSION}-bin.tar.gz"
+          sudo mkdir -p /opt/kroxylicious /etc/kroxylicious /etc/kafka-pki
+          sudo tar -xzf /tmp/kroxy.tar.gz --strip-components=1 -C /opt/kroxylicious
+          sudo useradd --system --no-create-home --shell /usr/sbin/nologin kroxylicious || true
+          sudo chown -R kroxylicious /opt/kroxylicious
+          sudo cp certs/server.p12 certs/ca.p12 /etc/kafka-pki/
+          sudo chmod 644 /etc/kafka-pki/*.p12
+
+      - name: Configure and start Kroxylicious
+        run: |
+          sudo tee /etc/kroxylicious/kroxylicious.yaml > /dev/null <<'EOF'
+          adminHttp:
+            host: 0.0.0.0
+            port: 9000
+            endpoints:
+              prometheus: {}
+          virtualClusters:
+            bank-kafka-cluster:
+              targetCluster:
+                bootstrap_servers: "localhost:9091,localhost:9092,localhost:9093"
+              clusterNetworkAddressConfigProvider:
+                type: PortPerBrokerClusterNetworkAddressConfigProvider
+                config:
+                  bootstrapAddress: "localhost:9292"
+                  brokerAddressPattern: "localhost"
+                  brokerStartPort: 9293
+                  numberOfBrokerPorts: 3
+              tls:
+                key:
+                  storeFile: /etc/kafka-pki/server.p12
+                  storePassword:
+                    password: changeit
+                  storeType: PKCS12
+                trust:
+                  storeFile: /etc/kafka-pki/ca.p12
+                  storeType: PKCS12
+                  trustOptions:
+                    clientAuth: REQUIRED
+              filters:
+                - type: ApiVersions
+          EOF
+
+          sudo -u kroxylicious /opt/kroxylicious/bin/kroxylicious-start.sh \
+            --config /etc/kroxylicious/kroxylicious.yaml \
+            > /tmp/kroxylicious.log 2>&1 &
+
+          echo "Waiting for Kroxylicious to start..."
+          for i in $(seq 1 30); do
+            if curl -sf -o /dev/null http://localhost:9000/healthz 2>/dev/null; then
+              echo "Kroxylicious ready"
               break
             fi
-            if [ "$i" -eq 20 ]; then
-              echo "Envoy did not become ready in time"
-              docker logs envoy --tail 30
-              exit 1
-            fi
+            [ "$i" -eq 30 ] && { echo "Kroxylicious timeout"; cat /tmp/kroxylicious.log; exit 1; }
             sleep 3
           done
 
-      - name: Wait for Prometheus to be ready
-        run: |
-          for i in $(seq 1 18); do
-            if curl -sf http://localhost:9090/-/ready 2>/dev/null | grep -q "Prometheus"; then
-              echo "Prometheus is ready"
-              break
-            fi
-            if [ "$i" -eq 18 ]; then
-              echo "Prometheus did not become ready in time"
-              docker logs prometheus --tail 30
-              exit 1
-            fi
-            sleep 5
-          done
-
-      - name: Show stack status
-        run: docker compose ps
-
       - name: Run smoke test suite
-        run: bash scripts/kafka-smoke-test.sh
-
-      - name: Verify Prometheus scraped Envoy metrics
         run: |
-          echo "=== Prometheus targets ==="
-          curl -sf http://localhost:9090/api/v1/targets | python3 -m json.tool | grep -E '"health"|"scrapeUrl"' || true
-          echo "=== Envoy cluster metrics via Prometheus ==="
-          curl -sf "http://localhost:9090/api/v1/query?query=envoy_cluster_upstream_cx_active" | python3 -m json.tool || true
+          export KAFKA_INTERNAL="localhost:9091"
+          bash scripts/kafka-smoke-test.sh
 
-      - name: Verify kafka-exporter metrics
+      - name: Verify Kroxylicious metrics
         run: |
-          echo "=== Kafka brokers metric ==="
-          curl -sf "http://localhost:9090/api/v1/query?query=kafka_brokers" | python3 -m json.tool || true
-          echo "=== Kafka topic partitions ==="
-          curl -sf "http://localhost:9090/api/v1/query?query=kafka_topic_partitions" | python3 -m json.tool || true
+          echo "=== Kroxylicious /metrics ==="
+          curl -sf http://localhost:9000/metrics | grep -E "jvm_|kroxylicious_" | head -20 || true
 
       - name: Collect logs on failure
         if: failure()
         run: |
-          echo "=== kafka1 logs ===" && docker logs kafka1 --tail 100 || true
-          echo "=== kafka2 logs ===" && docker logs kafka2 --tail 100 || true
-          echo "=== kafka3 logs ===" && docker logs kafka3 --tail 100 || true
-          echo "=== envoy logs  ===" && docker logs envoy  --tail 100 || true
-          echo "=== prometheus  ===" && docker logs prometheus --tail 50 || true
-          echo "=== grafana     ===" && docker logs grafana --tail 50 || true
-          echo "=== Envoy stats ===" && curl -sf http://localhost:9901/stats || true
-
-      - name: Tear down stack
-        if: always()
-        run: docker compose down -v --remove-orphans
+          echo "=== Kafka broker logs ===" && cat /var/log/kafka/broker-*.log 2>/dev/null | tail -100 || true
+          echo "=== Kroxylicious log ===" && cat /tmp/kroxylicious.log 2>/dev/null | tail -100 || true
+          echo "=== Kroxylicious metrics ===" && curl -sf http://localhost:9000/metrics || true

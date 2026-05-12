@@ -1,0 +1,6 @@
+---
+kafka_ui_version: "0.7.2"
+kafka_ui_user: kafka-ui
+kafka_ui_port: 8080
+kafka_ui_home: /opt/kafka-ui
+kafka_ui_log_dir: /var/log/kafka-ui
